@@ -1,0 +1,27 @@
+{
+  // Public, anonymous MCP server + e-ink reader, one origin (no CORS for the
+  // ancient Kindle browser). Durable Objects:
+  //   Live    — McpAgent, Streamable HTTP at /mcp (no auth; sessions isolate by code)
+  //   Session — one per reader code; holds the current doc {v, html, title}, TTL alarm
+  "name": "live-reader",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-06-01",
+  "compatibility_flags": ["nodejs_compat"],
+
+  // custom_domain manages the DNS record in the neves.cloud zone.
+  "routes": [
+    { "pattern": "live.neves.cloud", "custom_domain": true }
+  ],
+
+  "durable_objects": {
+    "bindings": [
+      { "name": "LIVE", "class_name": "Live" },
+      { "name": "SESSION", "class_name": "Session" }
+    ]
+  },
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["Live", "Session"] }
+  ],
+
+  "observability": { "enabled": true }
+}
