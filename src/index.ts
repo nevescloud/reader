@@ -1,11 +1,13 @@
 import { Live } from "./mcp";
 import { Session } from "./session";
 import { landingPage, readerPage } from "./pages";
-import { newCode, normCode, isEreader } from "./util";
+import { BASE, newCode, normCode, isEreader } from "./util";
 
 export { Live, Session };
 
-const mcp = Live.serve("/mcp", { binding: "LIVE" });
+// Mounted under BASE because this Worker runs behind the gateway at
+// mcp.neves.cloud/live-reader/* — it has no public route of its own.
+const mcp = Live.serve(`${BASE}/mcp`, { binding: "LIVE" });
 
 function html(body: string): Response {
   return new Response(body, {
@@ -19,12 +21,12 @@ export default {
     const p = url.pathname;
 
     // MCP transport (Streamable HTTP) — Claude clients connect here.
-    if (p === "/mcp" || p.startsWith("/mcp/")) return mcp.fetch(req, env, ctx);
+    if (p === `${BASE}/mcp` || p.startsWith(`${BASE}/mcp/`)) return mcp.fetch(req, env, ctx);
 
-    // Reader poll. Same origin as the reader page, so no CORS dance on the
-    // ancient Kindle browser — the permissive header is just for reuse.
-    if (p.startsWith("/s/")) {
-      const code = normCode(decodeURIComponent(p.slice(3)));
+    // Reader poll. Same origin as the reader page (both under the gateway), so
+    // no CORS dance on the ancient Kindle browser.
+    if (p.startsWith(`${BASE}/s/`)) {
+      const code = normCode(decodeURIComponent(p.slice(`${BASE}/s/`.length)));
       if (!code) return new Response("bad code", { status: 400 });
       const since = parseInt(url.searchParams.get("v") || "0", 10) || 0;
       const stub = env.SESSION.get(env.SESSION.idFromName(code));
@@ -40,21 +42,21 @@ export default {
 
     // Reader page. /r mints a fresh code and redirects so the URL is stable
     // (bookmark/refresh keep the same code); /r/<code> renders.
-    if (p === "/r" || p === "/r/") {
-      return Response.redirect(`${url.origin}/r/${newCode()}`, 302);
+    if (p === `${BASE}/r` || p === `${BASE}/r/`) {
+      return Response.redirect(`${url.origin}${BASE}/r/${newCode()}`, 302);
     }
-    if (p.startsWith("/r/")) {
-      const code = normCode(decodeURIComponent(p.slice(3)));
-      if (!code) return Response.redirect(`${url.origin}/r/${newCode()}`, 302);
+    if (p.startsWith(`${BASE}/r/`)) {
+      const code = normCode(decodeURIComponent(p.slice(`${BASE}/r/`.length)));
+      if (!code) return Response.redirect(`${url.origin}${BASE}/r/${newCode()}`, 302);
       return html(readerPage(code));
     }
 
-    // Setup page — but an e-reader landing on "/" is sent straight to a reader.
-    if (p === "/") {
+    // Setup page — but an e-reader landing on the base is sent straight to a reader.
+    if (p === BASE || p === `${BASE}/`) {
       if (isEreader(req.headers.get("user-agent") || "")) {
-        return Response.redirect(`${url.origin}/r`, 302);
+        return Response.redirect(`${url.origin}${BASE}/r`, 302);
       }
-      return html(landingPage(url.host));
+      return html(landingPage());
     }
 
     return new Response("not found", { status: 404 });

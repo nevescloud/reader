@@ -3,9 +3,10 @@
 //                 floor: system font, 44px targets, dark mode, focus rings, live region.
 //   readerPage  — the e-reader's ~2012 WebKit. e-ink serif, no flex/grid, ES5-only
 //                 inline script (var / XHR / string-concat — no template literals).
+import { BASE, MCP_URL, READER_HOST } from "./util";
 
-export function landingPage(host: string): string {
-  const mcpUrl = `https://${host}/mcp`;
+export function landingPage(): string {
+  const mcpUrl = MCP_URL;
   return `<!doctype html><html lang=en><head><meta charset=utf-8>
 <meta name=viewport content="width=device-width,initial-scale=1">
 <meta name=color-scheme content="light dark">
@@ -47,7 +48,7 @@ export function landingPage(host: string): string {
     </li>
     <li>
       <h2>2&nbsp;&middot;&nbsp;Open this page on your e-reader</h2>
-      <p>In its web browser, go to <b>${host}</b>. A 5-character code appears on screen.</p>
+      <p>In its web browser, go to <b>${READER_HOST}</b>. A 5-character code appears on screen.</p>
     </li>
     <li>
       <h2>3&nbsp;&middot;&nbsp;Tell Claude the code</h2>
@@ -103,11 +104,12 @@ export function readerPage(code: string): string {
 <script>
 (function(){
   var code=${JSON.stringify(code)};
+  var base=${JSON.stringify(BASE)};
   var v=0;
   var h=document.getElementById('h'),t=document.getElementById('t'),a=document.getElementById('a');
   function poll(){
     var x=new XMLHttpRequest();
-    x.open('GET','/s/'+code+'?v='+v,true);
+    x.open('GET',base+'/s/'+code+'?v='+v,true);
     x.onreadystatechange=function(){
       if(x.readyState===4){
         if(x.status===200){
