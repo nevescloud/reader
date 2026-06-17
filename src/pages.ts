@@ -4,7 +4,7 @@
 //   readerPage  — the e-reader's ~2012 WebKit. e-ink serif, paginated (not scrolled),
 //                 ES5-only inline script (var / XHR / string-concat, -webkit- prefixes,
 //                 px math from innerWidth/innerHeight — no flex/grid/vh/vw).
-import { BASE, MCP_URL, READER_HOST } from "./util";
+import { BASE, MCP_URL, READER_URL } from "./util";
 
 export function landingPage(): string {
   const mcpUrl = MCP_URL;
@@ -49,7 +49,7 @@ export function landingPage(): string {
     </li>
     <li>
       <h2>2&nbsp;&middot;&nbsp;Open this page on your e-reader</h2>
-      <p>In its web browser, go to <b>${READER_HOST}</b>. A 5-character code appears on screen.</p>
+      <p>In its web browser, go to <b>${READER_URL}</b>. A 5-character code appears on screen.</p>
     </li>
     <li>
       <h2>3&nbsp;&middot;&nbsp;Tell Claude the code</h2>

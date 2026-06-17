@@ -1,16 +1,22 @@
 {
-  // Reader website + internal API behind the mcp.neves.cloud gateway. No public
-  // route: reachable only via the gateway's service binding. The MCP tools live
-  // on the central mcp.neves.cloud/mcp server and drive us over /_api/*.
+  // Reader website on its OWN origin: the apex neves.cloud, mounted at /read.
+  // Public surface (/read, /read/<code>, /read/s, /read/c) is anonymous — an
+  // e-reader can't OAuth, so the unguessable code is the capability. The write
+  // path /read/_api/* is gated by the SEND_TOKEN secret (wrangler secret put).
+  // The send_to_reader tool that holds the secret lives on the mcp.neves.cloud
+  // gateway (OAuth); it drives us over /read/_api/send.
   //   Session — one per reader code; holds the current doc {v, html, title}, TTL alarm
   "name": "live-reader",
   "main": "src/index.ts",
   "compatibility_date": "2025-06-01",
   "compatibility_flags": ["nodejs_compat"],
 
-  // No public route AND no workers.dev URL — reachable only via the gateway's
-  // service binding, so mcp.neves.cloud/live-reader is the single entry.
+  // The apex is the single entry: neves.cloud/read. custom_domain manages DNS.
+  // No workers.dev URL needed.
   "workers_dev": false,
+  "routes": [
+    { "pattern": "neves.cloud", "custom_domain": true }
+  ],
 
   "durable_objects": {
     "bindings": [

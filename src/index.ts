@@ -20,13 +20,22 @@ function json(body: unknown, status = 200): Response {
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+// The reader surface is public+anonymous, but this Worker is publicly routed on the
+// apex now, so the write API can't lean on "no public route" — it gates on SEND_TOKEN.
+// Only the send_to_reader tool on the OAuth'd gateway holds the secret. Fail closed:
+// unset secret => every write is rejected. For dev, set SEND_TOKEN in `.dev.vars`.
+function authed(req: Request, env: Env): boolean {
+  return !!env.SEND_TOKEN && req.headers.get("authorization") === `Bearer ${env.SEND_TOKEN}`;
+}
+
 export default {
   async fetch(req: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(req.url);
     const p = url.pathname;
 
-    // --- internal API: service-binding only (gateway 404s public /_api/). ---
+    // --- internal write API: shared-secret bearer (see authed()). ---
     if (p === `${BASE}/_api/send` && req.method === "POST") {
+      if (!authed(req, env)) return json({ error: "unauthorized" }, 401);
       const { code, content, title, choices } = (await req.json().catch(() => ({}))) as {
         code?: string; content?: string; title?: string; choices?: string[];
       };
@@ -39,6 +48,7 @@ export default {
     }
     // Long-poll for the user's tap. Blocks up to ~timeout, consuming the choice.
     if (p === `${BASE}/_api/await`) {
+      if (!authed(req, env)) return json({ error: "unauthorized" }, 401);
       const c = normCode(url.searchParams.get("code") || "");
       if (!c) return json({ error: "bad code" }, 400);
       const ms = Math.min(Math.max(parseInt(url.searchParams.get("timeout") || "45", 10) || 45, 5), 55) * 1000;
@@ -59,7 +69,7 @@ export default {
       if (c && label) await env.SESSION.get(env.SESSION.idFromName(c)).recordChoice(label);
       // x=1 => XHR (stay on the page); otherwise a plain link tap => back to reader.
       if (url.searchParams.get("x") === "1") return new Response(null, { status: 204, headers: { "cache-control": "no-store" } });
-      return Response.redirect(`${url.origin}${BASE}/r/${c}`, 302);
+      return Response.redirect(`${url.origin}${BASE}/${c}`, 302);
     }
 
     // --- reader poll. ---
@@ -73,22 +83,23 @@ export default {
       return new Response(JSON.stringify(r), { headers });
     }
 
-    // --- reader page. /r mints a stable code; /r/<code> renders. ---
-    if (p === `${BASE}/r` || p === `${BASE}/r/`) {
-      return Response.redirect(`${url.origin}${BASE}/r/${newCode()}`, 302);
+    // --- /read: setup page; an e-reader landing here gets a fresh code minted. ---
+    if (p === BASE || p === `${BASE}/`) {
+      if (isEreader(req.headers.get("user-agent") || "")) {
+        return Response.redirect(`${url.origin}${BASE}/${newCode()}`, 302);
+      }
+      return html(landingPage());
     }
-    if (p.startsWith(`${BASE}/r/`)) {
-      const code = normCode(decodeURIComponent(p.slice(`${BASE}/r/`.length)));
-      if (!code) return Response.redirect(`${url.origin}${BASE}/r/${newCode()}`, 302);
+    // --- /read/<code>: the reader page (any other sub-path is the code). ---
+    if (p.startsWith(`${BASE}/`)) {
+      const code = normCode(decodeURIComponent(p.slice(`${BASE}/`.length)));
+      if (!code) return Response.redirect(`${url.origin}${BASE}/${newCode()}`, 302);
       return html(readerPage(code));
     }
 
-    // --- setup page; an e-reader landing on the base goes straight to a reader. ---
-    if (p === BASE || p === `${BASE}/`) {
-      if (isEreader(req.headers.get("user-agent") || "")) {
-        return Response.redirect(`${url.origin}${BASE}/r`, 302);
-      }
-      return html(landingPage());
+    // --- bare apex => the reader entry. ---
+    if (p === "/" || p === "") {
+      return Response.redirect(`${url.origin}${BASE}`, 302);
     }
 
     return new Response("not found", { status: 404 });

@@ -1,11 +1,14 @@
-// This Worker is a private backend behind the mcp.neves.cloud gateway. It serves
-// the reader website (public, via the gateway) and an internal API (service-
-// binding only) that the central MCP server's send_to_reader tool drives.
-export const GATEWAY = "mcp.neves.cloud";
-export const BASE = "/live-reader"; // mounted at mcp.neves.cloud/<repo>
-export const MCP_URL = `https://${GATEWAY}/mcp`; // the unified connector (OAuth) that carries send_to_reader
-export const READER_HOST = "neves.cloud"; // the one word to type on the e-reader; the apex UA-sniff bounces e-readers to ${GATEWAY}${BASE}/r
-export const readerLink = (code: string) => `https://${GATEWAY}${BASE}/r/${code}`;
+// This Worker serves the reader website on its OWN origin — the apex neves.cloud,
+// mounted at /read. The public surface is anonymous on purpose: an e-reader can't
+// OAuth, so the unguessable code IS the capability. The write path (/read/_api/*)
+// is the protected side — a shared-secret bearer, hit only by the send_to_reader
+// tool that lives on the OAuth'd gateway at mcp.neves.cloud/mcp.
+export const GATEWAY = "mcp.neves.cloud"; // OAuth MCP gateway; carries send_to_reader
+export const APEX = "neves.cloud"; // the reader's own (anonymous) origin
+export const BASE = "/read"; // reader mount on the apex
+export const MCP_URL = `https://${GATEWAY}/mcp`; // the connector added in Claude (OAuth, GitHub sign-in)
+export const READER_URL = `${APEX}${BASE}`; // the one thing typed on the e-reader: neves.cloud/read
+export const readerLink = (code: string) => `https://${APEX}${BASE}/${code}`;
 
 // base32 minus visually ambiguous chars (no I/L/O/U, no 0/1) — so a code read
 // off an e-ink screen has nothing to misread.
