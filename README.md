@@ -3,7 +3,7 @@
 Send anything Claude writes to an e-reader (Kindle, Kobo, …) and read it on
 e-ink in real time. The **reader website** lives at **`mcp.neves.cloud/live-reader`**;
 the MCP tools that drive it (`send_to_reader`, `check_reader`) live on the unified
-**`mcp.neves.cloud/mcp`** server and reach this Worker over an internal API.
+**`mcp.neves.cloud`** server and reach this Worker over an internal API.
 
 This Worker has **no public route of its own** — it's reachable only through the
 `mcp.neves.cloud` gateway's service binding. Two surfaces:
@@ -15,7 +15,7 @@ This Worker has **no public route of its own** — it's reachable only through t
 ```
 Claude (any client, incl. phone)               e-reader (~2012 WebKit, e-ink)
    │  send_to_reader(code, markdown)                  │  open mcp.neves.cloud/live-reader
-   ▼  (tool on mcp.neves.cloud/mcp, OAuth)            ▼  shows a 5-char code
+   ▼  (tool on mcp.neves.cloud, OAuth)            ▼  shows a 5-char code
    gateway ──service binding──▶ /live-reader/_api/send       polls /live-reader/s/<code> every 2.5s
                                      │                              ▲  swaps in new HTML
                                      ▼                              │
@@ -60,6 +60,6 @@ cd ../mcp && npm run deploy
 ```
 
 ## Use it
-1. Add `https://mcp.neves.cloud/mcp` as a custom MCP server in Claude (GitHub sign-in).
+1. Add `https://mcp.neves.cloud` as a custom MCP server in Claude (GitHub sign-in).
 2. Open `mcp.neves.cloud/live-reader` on the e-reader; note the 5-char code.
 3. Tell Claude: *"send that to my reader, code ABCDE."*
