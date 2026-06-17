@@ -86,6 +86,12 @@ export function readerPage(code: string): string {
   article h2{font-size:32px}
   article h3{font-size:29px}
   article h4{font-size:27px}
+  article table{border-collapse:collapse;width:100%;margin:1.1em 0;font-size:22px}
+  article th,article td{border:1px solid #000;padding:8px 11px;text-align:left;vertical-align:top}
+  article th{font-weight:bold;background:#f0f0f0}
+  article pre{background:#f4f4f4;padding:12px;overflow:auto;font-size:20px;border-radius:6px}
+  .svgwrap{margin:1.2em 0;text-align:center}
+  .svgwrap svg{max-width:100%;height:auto}
   .pair{text-align:center;padding:54px 16px}
   .pair .lead{font-size:24px;color:#333;margin:0 0 24px}
   .pair .code{font-size:72px;font-weight:bold;letter-spacing:10px;margin:0 0 28px}
