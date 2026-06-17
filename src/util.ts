@@ -3,7 +3,7 @@
 // binding only) that the central MCP server's send_to_reader tool drives.
 export const GATEWAY = "mcp.neves.cloud";
 export const BASE = "/live-reader"; // mounted at mcp.neves.cloud/<repo>
-export const MCP_URL = `https://${GATEWAY}`; // the unified connector (OAuth, bare origin) that carries send_to_reader
+export const MCP_URL = `https://${GATEWAY}/mcp`; // the unified connector (OAuth) that carries send_to_reader
 export const READER_HOST = `${GATEWAY}${BASE}`; // what you open on the e-reader
 export const readerLink = (code: string) => `https://${GATEWAY}${BASE}/r/${code}`;
 

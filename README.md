@@ -60,6 +60,6 @@ cd ../mcp && npm run deploy
 ```
 
 ## Use it
-1. Add `https://mcp.neves.cloud` as a custom MCP server in Claude (GitHub sign-in).
+1. Add `https://mcp.neves.cloud/mcp` as a custom MCP server in Claude (GitHub sign-in).
 2. Open `mcp.neves.cloud/live-reader` on the e-reader; note the 5-char code.
 3. Tell Claude: *"send that to my reader, code ABCDE."*
