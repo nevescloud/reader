@@ -10,6 +10,10 @@
   "compatibility_date": "2025-06-01",
   "compatibility_flags": ["nodejs_compat"],
 
+  // No public route AND no workers.dev URL — reachable only via the gateway's
+  // service binding, so mcp.neves.cloud/live-reader is the single entry.
+  "workers_dev": false,
+
   "durable_objects": {
     "bindings": [
       { "name": "LIVE", "class_name": "Live" },
