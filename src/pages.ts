@@ -92,6 +92,13 @@ export function readerPage(code: string): string {
   .pair .hint{font-size:22px;color:#555;line-height:1.5}
   .pair .hint b{color:#000}
   .pair .wait{font-size:18px;color:#888;margin-top:40px}
+  /* tap-to-choose + quick actions */
+  .choices{margin:8px 0 0}
+  .choice{display:block;border:2px solid #000;border-radius:10px;padding:18px 20px;margin:14px 0;font-size:25px;text-align:center;text-decoration:none;color:#000}
+  .sent{font-size:24px;font-weight:bold;padding:18px 0;color:#000}
+  .qa{margin-top:40px;border-top:1px solid #999;padding-top:14px}
+  .qa .qatitle{font-size:18px;color:#777;margin-right:6px}
+  .qa .qbtn{display:inline-block;border:1px solid #000;border-radius:22px;padding:9px 16px;margin:6px 8px 0 0;font-size:19px;text-decoration:none;color:#000}
 </style></head><body>
 <div id=h class=pair>
   <p class=lead>Your reading code</p>
@@ -101,12 +108,44 @@ export function readerPage(code: string): string {
 </div>
 <h1 id=t style="display:none"></h1>
 <article id=a></article>
+<div id=choices class=choices></div>
+<div id=qa class=qa style="display:none">
+  <span class=qatitle>Quick:</span>
+  <a href="#" class=qbtn data-q="&#8635; simpler">&#8635; simpler</a>
+  <a href="#" class=qbtn data-q="&#8594; more">&#8594; more</a>
+  <a href="#" class=qbtn data-q="&#9998; explain">&#9998; explain</a>
+</div>
 <script>
 (function(){
   var code=${JSON.stringify(code)};
   var base=${JSON.stringify(BASE)};
   var v=0;
-  var h=document.getElementById('h'),t=document.getElementById('t'),a=document.getElementById('a');
+  var h=document.getElementById('h'),t=document.getElementById('t'),a=document.getElementById('a'),
+      cw=document.getElementById('choices'),qa=document.getElementById('qa');
+
+  function tap(label){
+    var x=new XMLHttpRequest();
+    x.open('GET',base+'/c/'+code+'?x=1&q='+encodeURIComponent(label),true);
+    x.send();
+    var s=document.createElement('div'); s.className='sent';
+    s.appendChild(document.createTextNode('✓ Sent: '+label));
+    cw.innerHTML=''; cw.appendChild(s);
+  }
+  function mkbtn(label){
+    var el=document.createElement('a'); el.className='choice'; el.href='#';
+    el.appendChild(document.createTextNode(label));
+    el.onclick=function(e){ if(e&&e.preventDefault)e.preventDefault(); tap(label); return false; };
+    return el;
+  }
+  function renderChoices(list){
+    cw.innerHTML='';
+    if(list&&list.length){ for(var i=0;i<list.length;i++) cw.appendChild(mkbtn(list[i])); }
+  }
+  var qbtns=qa.getElementsByTagName('a');
+  for(var k=0;k<qbtns.length;k++){ (function(btn){
+    btn.onclick=function(e){ if(e&&e.preventDefault)e.preventDefault(); tap(btn.getAttribute('data-q')); return false; };
+  })(qbtns[k]); }
+
   function poll(){
     var x=new XMLHttpRequest();
     x.open('GET',base+'/s/'+code+'?v='+v,true);
@@ -119,7 +158,8 @@ export function readerPage(code: string): string {
               v=d.v;
               if(d.title){document.title=d.title;t.textContent=d.title;t.style.display='block';}
               a.innerHTML=d.html;
-              h.style.display='none';
+              renderChoices(d.choices);
+              h.style.display='none'; qa.style.display='block';
               window.scrollTo(0,0);
             }
           }catch(e){}
