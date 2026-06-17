@@ -21,11 +21,11 @@ function json(body: unknown, status = 200): Response {
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 // The reader surface is public+anonymous, but this Worker is publicly routed on the
-// apex now, so the write API can't lean on "no public route" — it gates on SEND_TOKEN.
-// Only the send_to_reader tool on the OAuth'd gateway holds the secret. Fail closed:
-// unset secret => every write is rejected. For dev, set SEND_TOKEN in `.dev.vars`.
+// apex now, so the write API can't lean on "no public route" — it gates on READER_TOKEN.
+// Only the reader_send tool on the OAuth'd gateway holds the secret. Fail closed:
+// unset secret => every write is rejected. For dev, set READER_TOKEN in `.dev.vars`.
 function authed(req: Request, env: Env): boolean {
-  return !!env.SEND_TOKEN && req.headers.get("authorization") === `Bearer ${env.SEND_TOKEN}`;
+  return !!env.READER_TOKEN && req.headers.get("authorization") === `Bearer ${env.READER_TOKEN}`;
 }
 
 export default {
@@ -83,14 +83,14 @@ export default {
       return new Response(JSON.stringify(r), { headers });
     }
 
-    // --- /read: setup page; an e-reader landing here gets a fresh code minted. ---
+    // --- /reader: setup page; an e-reader landing here gets a fresh code minted. ---
     if (p === BASE || p === `${BASE}/`) {
       if (isEreader(req.headers.get("user-agent") || "")) {
         return Response.redirect(`${url.origin}${BASE}/${newCode()}`, 302);
       }
       return html(landingPage());
     }
-    // --- /read/<code>: the reader page (any other sub-path is the code). ---
+    // --- /reader/<code>: the reader page (any other sub-path is the code). ---
     if (p.startsWith(`${BASE}/`)) {
       const code = normCode(decodeURIComponent(p.slice(`${BASE}/`.length)));
       if (!code) return Response.redirect(`${url.origin}${BASE}/${newCode()}`, 302);

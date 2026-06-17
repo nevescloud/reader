@@ -2,7 +2,7 @@ import { DurableObject } from "cloudflare:workers";
 
 // One instance per reader code. Holds the current document + a monotonic version
 // the reader polls against, plus a pending tap (the user's choice) that the
-// await_reader_choice tool consumes. Self-deletes 6h after the last write.
+// reader_await tool consumes. Self-deletes 6h after the last write.
 const TTL_MS = 6 * 60 * 60 * 1000;
 const CONNECTED_MS = 15_000; // a reader polling within this window counts as live
 
@@ -36,7 +36,7 @@ export class Session extends DurableObject {
     await this.ctx.storage.put("choice", { label, at: Date.now() } satisfies Choice);
   }
 
-  // await_reader_choice consumes the pending tap (so it isn't returned twice).
+  // reader_await consumes the pending tap (so it isn't returned twice).
   async takeChoice(): Promise<Choice | null> {
     const c = (await this.ctx.storage.get<Choice>("choice")) ?? null;
     if (c) await this.ctx.storage.delete("choice");
