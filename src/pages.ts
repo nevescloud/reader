@@ -93,7 +93,7 @@ export function readerPage(code: string): string {
   #flow h2{font-size:1.22em;line-height:1.25;margin:1em 0 .3em;font-weight:bold}
   #flow h3{font-size:1.1em;line-height:1.25;margin:1em 0 .3em;font-weight:bold}
   #flow h4{font-size:1em;margin:1em 0 .3em;font-weight:bold}
-  #flow p{margin:0 0 .85em}
+  #flow p{margin:0 0 .85em;text-align:justify;-webkit-hyphens:auto;-moz-hyphens:auto;hyphens:auto}
   #flow ul{margin:0 0 .85em;padding-left:1.2em}
   #flow img{max-width:100%;height:auto}
   #flow table{border-collapse:collapse;width:100%;margin:.9em 0;font-size:.82em}
@@ -110,6 +110,9 @@ export function readerPage(code: string): string {
   #menu .mbtn,#menu .qbtn{display:inline-block;border:1px solid #000;border-radius:22px;padding:9px 16px;margin:0 8px 0 0;font-size:20px}
   #menu .pageind{float:right;color:#555;font-size:18px;padding-top:10px}
   #menu .mhint{font-size:15px;color:#888;margin:2px 0 0}
+  /* always-on progress footer (Kindle-style), sits in the bottom page margin */
+  #foot{position:fixed;left:0;right:0;bottom:0;height:36px;line-height:36px;text-align:center;
+    color:#999;font-size:15px;background:#fff;display:none;z-index:5;pointer-events:none}
 </style></head><body>
 <div id=h class=pair>
   <p class=lead>Your reading code</p>
@@ -131,6 +134,7 @@ export function readerPage(code: string): string {
   </div>
   <p class=mhint>Tap left / right edge to turn the page &middot; center for this menu</p>
 </div>
+<div id=foot></div>
 <script>
 (function(){
   var code=${JSON.stringify(code)};
@@ -144,7 +148,8 @@ export function readerPage(code: string): string {
       pageEl=document.getElementById('page'),
       flow=document.getElementById('flow'),
       menu=document.getElementById('menu'),
-      pageind=document.getElementById('pageind');
+      pageind=document.getElementById('pageind'),
+      foot=document.getElementById('foot');
 
   function vw(){return window.innerWidth||document.documentElement.clientWidth;}
   function vh(){return window.innerHeight||document.documentElement.clientHeight;}
@@ -176,7 +181,9 @@ export function readerPage(code: string): string {
     var x=-page*vw();
     flow.style.webkitTransform='translateX('+x+'px)';
     flow.style.transform='translateX('+x+'px)';
-    pageind.innerHTML=(page+1)+' / '+pages;
+    var pct=(pages>1)?Math.round(page/(pages-1)*100):100;
+    var label=(page+1)+' / '+pages+' · '+pct+'%';
+    pageind.innerHTML=label; foot.innerHTML=label;
   }
   function next(){ if(page<pages-1){page++;showPage();} }
   function prev(){ if(page>0){page--;showPage();} }
@@ -216,15 +223,26 @@ export function readerPage(code: string): string {
     s.appendChild(document.createTextNode('✓ '+label));
     wrap.parentNode.replaceChild(s,wrap);
   }
+  function applyPos(firstLoad,wasAtEnd,frac){
+    if(firstLoad)page=0;               // brand-new doc: start at the top
+    else if(wasAtEnd)page=pages-1;     // was reading the tail: follow new content as Claude appends
+    else page=Math.round(frac*(pages-1)); // else hold the same place through the reflow
+    if(page>=pages)page=pages-1; if(page<0)page=0;
+    showPage();
+  }
   function renderDoc(d){
+    var firstLoad=(pageEl.style.display!=='block');
+    var wasAtEnd=(page>=pages-1);
+    var frac=(pages>1)?(page/(pages-1)):0;
     flow.innerHTML=d.html||'';
     if(d.title){ var hh=document.createElement('h1'); hh.appendChild(document.createTextNode(d.title));
       flow.insertBefore(hh, flow.firstChild); document.title=d.title; }
     if(d.choices&&d.choices.length){ var wrap=document.createElement('div'); wrap.className='choices';
       for(var i=0;i<d.choices.length;i++) wrap.appendChild(mkChoice(d.choices[i])); flow.appendChild(wrap); }
-    h.style.display='none'; pageEl.style.display='block';
-    page=0; paginate();
-    setTimeout(paginate,300); // settle after image/svg layout
+    h.style.display='none'; pageEl.style.display='block'; foot.style.display='block';
+    layout(); pages=Math.max(1, Math.round(flow.scrollWidth/vw()));
+    applyPos(firstLoad,wasAtEnd,frac);
+    setTimeout(function(){ layout(); pages=Math.max(1, Math.round(flow.scrollWidth/vw())); applyPos(firstLoad,wasAtEnd,frac); },300); // settle after image/svg layout, then re-anchor
   }
 
   document.getElementById('fminus').onclick=function(e){if(e&&e.preventDefault)e.preventDefault();setFont(-2);return false;};
