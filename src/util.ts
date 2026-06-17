@@ -4,7 +4,7 @@
 export const GATEWAY = "mcp.neves.cloud";
 export const BASE = "/live-reader"; // mounted at mcp.neves.cloud/<repo>
 export const MCP_URL = `https://${GATEWAY}/mcp`; // the unified connector (OAuth) that carries send_to_reader
-export const READER_HOST = `${GATEWAY}${BASE}`; // what you open on the e-reader
+export const READER_HOST = "neves.cloud"; // the one word to type on the e-reader; the apex UA-sniff bounces e-readers to ${GATEWAY}${BASE}/r
 export const readerLink = (code: string) => `https://${GATEWAY}${BASE}/r/${code}`;
 
 // base32 minus visually ambiguous chars (no I/L/O/U, no 0/1) — so a code read
