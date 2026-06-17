@@ -153,9 +153,11 @@ export function readerPage(code: string): string {
     var W=vw(), H=vh(), colW=W-2*PAD;
     flow.style.fontSize=fontPx+'px';
     flow.style.height=(H-2*VPAD)+'px';
+    flow.style.width=colW+'px'; // content-box = exactly one column, so a lone column can't expand to fill and clip the right edge
     flow.style.paddingTop=VPAD+'px';
     flow.style.paddingBottom=VPAD+'px';
     flow.style.paddingLeft=PAD+'px';
+    flow.style.paddingRight=PAD+'px';
     flow.style.webkitColumnWidth=colW+'px';
     flow.style.MozColumnWidth=colW+'px';
     flow.style.columnWidth=colW+'px';
