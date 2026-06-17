@@ -1,9 +1,7 @@
 {
-  // Anonymous MCP server + e-ink reader, mounted under /live-reader. No public
-  // route: reachable only via the mcp.neves.cloud gateway's service binding, so
-  // MCP + reader + poll all share one origin (mcp.neves.cloud) — no CORS.
-  // Durable Objects:
-  //   Live    — McpAgent, Streamable HTTP at /live-reader/mcp (no auth; isolates by code)
+  // Reader website + internal API behind the mcp.neves.cloud gateway. No public
+  // route: reachable only via the gateway's service binding. The MCP tools live
+  // on the central mcp.neves.cloud/mcp server and drive us over /_api/*.
   //   Session — one per reader code; holds the current doc {v, html, title}, TTL alarm
   "name": "live-reader",
   "main": "src/index.ts",
@@ -16,12 +14,12 @@
 
   "durable_objects": {
     "bindings": [
-      { "name": "LIVE", "class_name": "Live" },
       { "name": "SESSION", "class_name": "Session" }
     ]
   },
   "migrations": [
-    { "tag": "v1", "new_sqlite_classes": ["Live", "Session"] }
+    { "tag": "v1", "new_sqlite_classes": ["Live", "Session"] },
+    { "tag": "v2", "deleted_classes": ["Live"] }
   ],
 
   "observability": { "enabled": true }

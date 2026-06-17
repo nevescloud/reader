@@ -43,7 +43,7 @@ export function landingPage(): string {
   <ol>
     <li>
       <h2>1&nbsp;&middot;&nbsp;Connect Claude</h2>
-      <p>Add this address as an MCP server in your Claude app:</p>
+      <p>Add this as a custom MCP server in your Claude app (one-time, sign in with GitHub):</p>
       <div class=url><code id=u tabindex=0>${mcpUrl}</code><button id=c type=button>Copy</button></div>
     </li>
     <li>
