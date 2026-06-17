@@ -85,6 +85,7 @@ export function readerPage(code: string): string {
   .pair .code{font-size:72px;font-weight:bold;letter-spacing:10px;margin:0 0 28px}
   .pair .hint{font-size:22px;color:#555;line-height:1.5}
   .pair .hint b{color:#000}
+  .pair .alt{font-size:18px;color:#888;line-height:1.45;margin-top:22px}
   .pair .wait{font-size:18px;color:#888;margin-top:40px}
   /* paginated reader */
   #page{position:fixed;top:0;left:0;right:0;bottom:0;overflow:hidden;display:none}
@@ -118,6 +119,7 @@ export function readerPage(code: string): string {
   <p class=lead>Your reading code</p>
   <p class=code>${code}</p>
   <p class=hint>In Claude, say:<br><b>&ldquo;send that to my reader, code ${code}&rdquo;</b></p>
+  <p class=alt>&mdash; or just snap a photo of this screen and attach it to Claude. It reads the code and sends.</p>
   <p class=wait>Waiting&hellip; this page updates on its own.</p>
 </div>
 <div id=page><div id=flow></div></div>
