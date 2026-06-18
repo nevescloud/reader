@@ -61,6 +61,14 @@ export default {
       }
       return json({ timeout: true });
     }
+    // Pairing probe: is a reader currently polling this code? (check_reader)
+    if (p === `${BASE}/_api/status`) {
+      if (!authed(req, env)) return json({ error: "unauthorized" }, 401);
+      const c = normCode(url.searchParams.get("code") || "");
+      if (!c) return json({ error: "bad code" }, 400);
+      const s = await env.SESSION.get(env.SESSION.idFromName(c)).status();
+      return json({ code: c, connected: s.connected, v: s.v });
+    }
 
     // --- public tap target: the reader records a choice/quick-action here. ---
     if (p.startsWith(`${BASE}/c/`)) {
