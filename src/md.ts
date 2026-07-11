@@ -24,6 +24,11 @@ function inline(s: string): string {
   s = s.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_m, t, u) => { const h = safeUrl(u); return h ? `<a href="${h}">${t}</a>` : t; });
   s = s.replace(/\*\*([^*]+)\*\*/g, "<b>$1</b>");
   s = s.replace(/(?<!\*)\*([^*]+)\*(?!\*)/g, "<i>$1</i>");
+  // Underscore emphasis — models emit it as freely as asterisks. The \w
+  // lookarounds keep snake_case identifiers untouched (an interior _ is
+  // preceded by a word char, so it never opens a span).
+  s = s.replace(/(?<![\w])__(?!_)([^_]+)__(?![\w])/g, "<b>$1</b>");
+  s = s.replace(/(?<![\w])_([^_]+)_(?![\w])/g, "<i>$1</i>");
   s = s.replace(/\u0000(\d+)\u0000/g, (_m, i) => `<code>${codes[+i]}</code>`);
   return s;
 }
@@ -48,10 +53,15 @@ function cells(row: string): string[] {
 }
 const isTableSep = (l: string): boolean => /\|/.test(l) && /^[\s|:-]+$/.test(l) && /-/.test(l);
 const isTableRow = (l: string): boolean => l.includes("|");
-// Indent-tolerant: a nested "  - item" flattens into the same list instead of
-// snapping the list shut and rendering as a literal-dash paragraph.
+// Indent-tolerant: a nested "  - item" joins the same list (instead of snapping
+// it shut and rendering as a literal-dash paragraph) but keeps its depth as an
+// indent class (i1–i3, styled by the reader page) so hierarchy stays visible.
 const isUl = (l: string): boolean => /^\s{0,8}[-*]\s+/.test(l);
 const isOl = (l: string): boolean => /^\s{0,8}\d{1,3}[.)]\s+/.test(l);
+const indentClass = (l: string): string => {
+  const depth = Math.min(Math.floor((/^\s*/.exec(l)?.[0].length ?? 0) / 2), 3);
+  return depth ? ` class="i${depth}"` : "";
+};
 const isQuote = (l: string): boolean => /^\s{0,3}>/.test(l);
 const isHr = (l: string): boolean => /^(?:-{3,}|\*{3,}|_{3,})$/.test(l.trim());
 
@@ -115,7 +125,7 @@ export function mdToHtml(md: string): string {
     // unordered list
     if (isUl(line)) {
       const items: string[] = [];
-      while (i < lines.length && isUl(lines[i])) { items.push(`<li>${inline(lines[i].replace(/^\s*[-*]\s+/, ""))}</li>`); i++; }
+      while (i < lines.length && isUl(lines[i])) { items.push(`<li${indentClass(lines[i])}>${inline(lines[i].replace(/^\s*[-*]\s+/, ""))}</li>`); i++; }
       out.push("<ul>" + items.join("") + "</ul>");
       continue;
     }
@@ -125,7 +135,7 @@ export function mdToHtml(md: string): string {
     if (isOl(line)) {
       const start = parseInt(line.trim(), 10);
       const items: string[] = [];
-      while (i < lines.length && isOl(lines[i])) { items.push(`<li>${inline(lines[i].replace(/^\s*\d{1,3}[.)]\s+/, ""))}</li>`); i++; }
+      while (i < lines.length && isOl(lines[i])) { items.push(`<li${indentClass(lines[i])}>${inline(lines[i].replace(/^\s*\d{1,3}[.)]\s+/, ""))}</li>`); i++; }
       out.push(`<ol${start !== 1 ? ` start="${start}"` : ""}>` + items.join("") + "</ol>");
       continue;
     }
@@ -145,12 +155,15 @@ export function mdToHtml(md: string): string {
   return out.join("");
 }
 
-// A leading "# H1" is the title (rendered separately) — adopt it when no explicit
-// title was given, and drop it from the body. Precedence: explicit > H1 > fallback.
+// A leading "# H1" sits in title position: ALWAYS dropped from the body,
+// adopted as the title when none was given. Precedence: explicit > H1 > fallback.
+// (Must drop unconditionally: append re-renders the full source with the
+// previously-extracted title now explicit — if the H1 were kept in that pass,
+// the new html wouldn't extend the old and the device would lose its place.)
 export function render(md: string, explicitTitle?: string): { title: string; html: string } {
   let src = (md || "").trim();
   let title = (explicitTitle || "").trim();
   const m = /^#\s+(.+?)(?:\n|$)/.exec(src);
-  if (m && !title) { title = m[1].trim(); src = src.slice(m[0].length).trim(); }
+  if (m) { if (!title) title = m[1].trim(); src = src.slice(m[0].length).trim(); }
   return { title: title || "Reading", html: mdToHtml(src) };
 }

@@ -56,7 +56,7 @@ export function landingPage(): string {
       <p>Say &ldquo;send that to my reader, code ABCDE.&rdquo; It appears in a couple of seconds, and updates live as Claude sends more.</p>
     </li>
   </ol>
-  <p class=foot>No account, nothing saved. The code expires on its own.</p>
+  <p class=foot>No account. Nothing you read is stored &mdash; content expires on its own. Claude remembers only your reader code, so you pair once.</p>
   <p class=foot>Reading on this device right now? <a href="${BASE}/new">Get a code</a> &mdash; some e-readers aren't auto-detected.</p>
 </main>
 <span id=live role=status aria-live=polite class=sr></span>
@@ -105,7 +105,12 @@ export function readerPage(code: string): string {
   #flow table{border-collapse:collapse;width:100%;margin:.9em 0;font-size:.82em}
   #flow th,#flow td{border:1px solid #000;padding:7px 9px;text-align:left;vertical-align:top}
   #flow th{font-weight:bold;background:#f0f0f0}
-  #flow pre{background:#f4f4f4;padding:10px;font-size:.78em;overflow:hidden}
+  #flow pre{background:#f4f4f4;padding:10px;font-size:.78em;overflow:hidden;
+    white-space:pre-wrap;word-wrap:break-word} /* wrap, don't clip — overflow:hidden alone ate every line wider than the column */
+  #flow tr{-webkit-column-break-inside:avoid;page-break-inside:avoid;break-inside:avoid} /* a row split across a page turn is unreadable; the table still breaks between rows */
+  #flow li.i1{margin-left:1.1em}
+  #flow li.i2{margin-left:2.2em}
+  #flow li.i3{margin-left:3.3em}
   #flow .svgwrap{margin:1em 0;text-align:center}
   #flow .svgwrap svg{max-width:100%;height:auto}
   #flow .choice{display:block;border:2px solid #000;border-radius:10px;padding:14px 16px;margin:12px 0;font-size:1em;text-align:center;
@@ -233,13 +238,20 @@ export function readerPage(code: string): string {
   // Feedback lands in the always-on footer (the menu — and pageind with it — is
   // usually closed by the time a tap is sent). onFail lets a choice restore its
   // buttons: on flaky e-reader wifi a silently lost tap left the exercise stuck.
-  function tap(label,onFail){
+  function tap(label,onFail,kind){
     active(); // a tap means an answer is coming — poll fast for it
     var x=new XMLHttpRequest();
-    x.open('GET',base+'/c/'+code+'?x=1&v='+v+'&q='+encodeURIComponent(label),true);
+    x.open('GET',base+'/c/'+code+'?x=1&v='+v+'&k='+(kind||'a')+'&q='+encodeURIComponent(label),true);
     x.onreadystatechange=function(){
       if(x.readyState===4){
-        if(x.status>=200&&x.status<300){ foot.innerHTML='✓ sent'; setTimeout(showPage,1500); }
+        if(x.status>=200&&x.status<300){
+          // Quick actions have no waiting question — the request sits until
+          // Claude next looks. Say so, and keep saying so (no revert timer);
+          // any page turn or new doc naturally reclaims the footer.
+          if(kind==='q'){ foot.innerHTML='✓ '+label+' — Claude will see it'; }
+          else { foot.innerHTML='✓ sent'; setTimeout(showPage,1500); }
+          pollNow();
+        }
         else { if(onFail)onFail(); foot.innerHTML='✗ not sent — tap again'; setTimeout(showPage,2500); }
       }
     };
@@ -302,20 +314,30 @@ export function readerPage(code: string): string {
   var allA=menu.getElementsByTagName('a');
   for(var k=0;k<allA.length;k++){ (function(btn){
     if(btn.getAttribute('data-q')==null) return;
-    btn.onclick=function(e){ if(e&&e.preventDefault)e.preventDefault(); toggleMenu(false); tap(btn.getAttribute('data-q')); return false; };
+    btn.onclick=function(e){ if(e&&e.preventDefault)e.preventDefault(); toggleMenu(false); tap(btn.getAttribute('data-q'),null,'q'); return false; };
   })(allA[k]); }
 
   pageEl.onclick=onTap;
-  if(window.addEventListener){ window.addEventListener('resize',function(){ paginate(); },false); }
+  if(window.addEventListener){ window.addEventListener('resize',function(){
+    var frac=(pages>1)?(page/(pages-1)):0; // rotation reflows the page count — hold the reading position like setFont does
+    paginate();
+    page=Math.round(frac*(pages-1)); if(page>=pages)page=pages-1; if(page<0)page=0;
+    showPage();
+  },false); }
 
   // Wi-Fi held awake is the battery cost on e-ink — back off when idle, snap
   // back to 2.5s on any interaction or new content.
   function pollDelay(){ var idle=(+new Date())-lastActive;
     return idle<300000?2500:(idle<1800000?10000:30000); }
+  // One timer handle for the whole loop: pollNow() reschedules instead of
+  // spawning a second loop alongside an in-flight request.
+  var pollTimer=null;
+  function schedule(ms){ if(pollTimer)clearTimeout(pollTimer); pollTimer=setTimeout(poll,ms); }
+  function pollNow(){ schedule(600); } // a tap just landed — the reply is close
   function poll(){
     var x=new XMLHttpRequest();
     var settled=false;
-    function again(){ if(settled)return; settled=true; setTimeout(poll,pollDelay()); }
+    function again(){ if(settled)return; settled=true; schedule(pollDelay()); }
     // watchdog: a hung XHR (flaky e-reader wifi) used to stop polling forever
     var dog=setTimeout(function(){ try{x.abort();}catch(e){} again(); },20000);
     x.open('GET',base+'/s/'+code+'?v='+v+'&p='+page+'&n='+pages,true); // p/n: reading-position heartbeat

@@ -4,30 +4,32 @@ Send anything Claude writes to an e-reader (Kindle, Kobo, …) and read it on
 e-ink in real time. The **reader website** is **`neves.cloud/reader`** — a
 path-scoped Cloudflare Worker route that intercepts `/reader*` in front of the
 GitHub Pages org site that serves the rest of the apex. The MCP tools that drive
-it (`reader_send`, `reader_check`) live on the OAuth'd **`mcp.neves.cloud/mcp`**
-server and reach this Worker's write API over a shared secret.
+it (`send_to_reader`, `await_reader_choice`, `check_reader`, `pair_reader`,
+`predict_then_reveal`) live on the OAuth'd **`mcp.neves.cloud/mcp`** server and
+reach this Worker's write API over a shared secret.
 
 Two surfaces, two audiences:
-- **public + anonymous** (`/reader`, `/reader/<code>`, `/reader/s`, `/reader/c`): the
-  reader page and its poll/tap. No sign-in — an e-reader can't OAuth, so the
-  unguessable 5-char code *is* the capability.
-- **write API** (`/reader/_api/*`): gated by the `READER_TOKEN` secret (localhost is
-  exempt for dev). Only the central `reader_send` tool holds it; it sets a
-  reader's document. The reader's anonymous origin is deliberately *separate* from
-  the OAuth'd `mcp.neves.cloud`, so there's no OAuth-discovery bleed onto it.
+- **public + anonymous** (`/reader`, `/reader/<code>`, `/reader/s`, `/reader/c`,
+  `/reader/w`): the reader page, its poll/tap, and a read-only WebSocket tap feed.
+  No sign-in — an e-reader can't OAuth, so the unguessable 5-char code *is* the
+  capability.
+- **write API** (`/reader/_api/*`): gated by the `READER_TOKEN` secret. Only the
+  MCP gateway holds it; it sets a reader's document. The reader's anonymous
+  origin is deliberately *separate* from the OAuth'd `mcp.neves.cloud`, so
+  there's no OAuth-discovery bleed onto it.
 
 ## How it works
 ```
 Claude (any client, incl. phone)               e-reader (~2012 WebKit, e-ink)
-   │  reader_send(code, markdown)                  │  open neves.cloud/reader
+   │  send_to_reader(code, markdown)               │  open neves.cloud/reader
    ▼  (tool on mcp.neves.cloud, OAuth)            ▼  shows a 5-char code
-   gateway ──Bearer READER_TOKEN──▶ /reader/_api/send           polls /reader/s/<code> every 2.5s
+   gateway ──Bearer READER_TOKEN──▶ /reader/_api/send           polls /reader/s/<code> (2.5s→30s backoff)
                                      │                              ▲  swaps in new HTML
                                      ▼                              │
                             ┌──────────────────────────┐           │
                             │ Durable Object "<code>"  │───────────┘
-                            │ { v, html, title }, TTL  │
-                            └──────────────────────────┘
+                            │ { v, html, title }, TTL  │──▶ ws /reader/w/<code>
+                            └──────────────────────────┘    one frame per tap
 ```
 The **e-reader does zero typing**: it shows a code, you read it off-screen and
 tell Claude. Polling (not WebSocket/SSE) is deliberate — e-ink repaints in ~1s
@@ -40,15 +42,17 @@ makes the anonymous endpoint look protected, and clients (claude.ai) then fail t
 connect. So the reader is exposed as a tool on the one OAuth server instead.
 
 ## Pieces (one Worker, all under `/reader`)
-- `src/index.ts` — router: `/_api/send` + `/_api/await` (write, `READER_TOKEN`) · `/s/<code>` poll · `/c/<code>` tap · `/reader`→`/reader/<code>` reader · `/reader` setup (e-reader UA → fresh code) · bare apex → `/reader`.
-- `src/session.ts` — one Durable Object per code; holds the doc + a version the reader polls; self-deletes 6h after the last write.
+- `src/index.ts` — router: `/_api/send|await|status` (write, `READER_TOKEN`) · `/s/<code>` poll · `/c/<code>` tap · `/w/<code>` WebSocket tap feed · `/reader`→`/reader/<code>` reader · `/reader` setup (e-reader UA → sticky code) · bare apex → `/reader`.
+- `src/session.ts` — one Durable Object per code; holds the doc + a version the reader polls, the pending tap (typed answer/quick), and hibernating feed sockets; self-deletes after 6h of mutual silence.
 - `src/md.ts` — markdown → clean reading HTML (same shape as the static `kindle` repo's `build.py`).
 - `src/pages.ts` — `landingPage` (setup; HIG over the web-conformance floor) + `readerPage` (e-ink serif, ES5-only inline script).
 - `src/util.ts` — `BASE`, `APEX`, and the public-URL constants (single source).
 
-The MCP tools (`reader_send`, `reader_check`) belong in the gateway repo
-(`../mcp`) and reach `/reader/_api/*` with `Authorization: Bearer ${READER_TOKEN}`.
-**Not yet wired there** — that's the remaining integration step.
+The MCP tools live in the gateway repo (`../mcp`, `src/reader-tools.ts` +
+`src/cuko-tools.ts`) and reach `/reader/_api/*` with
+`Authorization: Bearer ${READER_TOKEN}`. The gateway also remembers each
+signed-in user's last verified code, so tools work without a code after the
+first pairing.
 
 ## Develop
 ```sh
@@ -64,7 +68,7 @@ npm run typecheck
 ```sh
 wrangler secret put READER_TOKEN   # one-time: the shared secret the gateway tool sends
 npm run deploy                   # binds the neves.cloud/reader* route, in front of Pages
-cd ../mcp && npm run deploy      # gateway — once the reader_send tool is wired
+cd ../mcp && npm run deploy      # gateway (holds the same READER_TOKEN)
 ```
 
 ## Use it

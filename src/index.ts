@@ -57,7 +57,14 @@ export default {
       }
       const { title: t, html: body } = render(md, wantTitle);
       const v = await stub.setDoc(body, t, opts, md);
-      return json({ code: c, v, title: t, choices: opts, mode: mode === "append" ? "append" : "replace" });
+      // Delivery honesty: the caller decides what to claim ("on the device" vs
+      // "queued" vs "no reader has ever polled") from the same status the DO
+      // already tracks — a send to a mistyped code must not look like delivery.
+      const s = await stub.status();
+      return json({
+        code: c, v, title: t, choices: opts, mode: mode === "append" ? "append" : "replace",
+        connected: s.connected, lastSeenS: s.lastSeenS, pending: s.pending, pendingKind: s.pendingKind,
+      });
     }
     // Long-poll for the user's tap. Blocks up to ~timeout, consuming the choice.
     // min_v scopes the wait to taps on that doc version or later (a tap from an
@@ -83,7 +90,7 @@ export default {
       const c = normCode(url.searchParams.get("code") || "");
       if (!c) return json({ error: "bad code" }, 400);
       const s = await env.SESSION.get(env.SESSION.idFromName(c)).status();
-      return json({ code: c, connected: s.connected, v: s.v, title: s.title, lastSeenS: s.lastSeenS, reading: s.reading, pending: s.pending });
+      return json({ code: c, connected: s.connected, v: s.v, title: s.title, lastSeenS: s.lastSeenS, reading: s.reading, pending: s.pending, pendingKind: s.pendingKind });
     }
 
     // --- public tap target: the reader records a choice/quick-action here. ---
@@ -91,7 +98,11 @@ export default {
       const c = normCode(decodeURIComponent(p.slice(`${BASE}/c/`.length)));
       const label = (url.searchParams.get("q") || "").slice(0, 120);
       const tapV = parseInt(url.searchParams.get("v") || "0", 10) || 0;
-      if (c && label) await env.SESSION.get(env.SESSION.idFromName(c)).recordChoice(label, tapV);
+      // k=q|a types the tap on the wire; absent (pages loaded pre-kind) the DO
+      // falls back to matching the label against the known quick-action set.
+      const k = url.searchParams.get("k");
+      const kind = k === "q" ? ("quick" as const) : k === "a" ? ("answer" as const) : undefined;
+      if (c && label) await env.SESSION.get(env.SESSION.idFromName(c)).recordChoice(label, tapV, kind);
       // x=1 => XHR (stay on the page); otherwise a plain link tap => back to reader.
       if (url.searchParams.get("x") === "1") return new Response(null, { status: 204, headers: { "cache-control": "no-store" } });
       return Response.redirect(`${url.origin}${BASE}/${c}`, 302);
@@ -108,6 +119,18 @@ export default {
       const headers = { "content-type": "application/json", "cache-control": "no-store" };
       if (!r) return new Response(null, { status: 204, headers });
       return new Response(JSON.stringify(r), { headers });
+    }
+
+    // --- tap feed: one WS frame per tap, for event-driven callers (e.g. a
+    // Claude Code Monitor holding the socket — tap wakes the model with no
+    // polling). Read-only; keyed on the code like every device-facing route. ---
+    if (p.startsWith(`${BASE}/w/`)) {
+      const c = normCode(decodeURIComponent(p.slice(`${BASE}/w/`.length)));
+      if (c.length !== 5) return new Response("bad code", { status: 400 });
+      if ((req.headers.get("upgrade") || "").toLowerCase() !== "websocket") {
+        return new Response("expected websocket", { status: 426 });
+      }
+      return env.SESSION.get(env.SESSION.idFromName(c)).fetch(req);
     }
 
     // A device revisiting bare /reader used to mint a fresh code every time,
