@@ -93,16 +93,26 @@ export default {
       return json({ code: c, connected: s.connected, v: s.v, title: s.title, lastSeenS: s.lastSeenS, reading: s.reading, pending: s.pending, pendingKind: s.pendingKind });
     }
 
-    // --- public tap target: the reader records a choice/quick-action here. ---
+    // --- public tap target: the reader records a choice/quick-action/explain here. ---
     if (p.startsWith(`${BASE}/c/`)) {
       const c = normCode(decodeURIComponent(p.slice(`${BASE}/c/`.length)));
-      const label = (url.searchParams.get("q") || "").slice(0, 120);
       const tapV = parseInt(url.searchParams.get("v") || "0", 10) || 0;
-      // k=q|a types the tap on the wire; absent (pages loaded pre-kind) the DO
+      // k=q|a|e types the tap on the wire; absent (pages loaded pre-kind) the DO
       // falls back to matching the label against the known quick-action set.
       const k = url.searchParams.get("k");
-      const kind = k === "q" ? ("quick" as const) : k === "a" ? ("answer" as const) : undefined;
-      if (c && label) await env.SESSION.get(env.SESSION.idFromName(c)).recordChoice(label, tapV, kind);
+      const kind = k === "q" ? ("quick" as const) : k === "a" ? ("answer" as const) : k === "e" ? ("explain" as const) : undefined;
+      // Explain labels are quotes to locate, not button captions — they get a
+      // wider cap plus before/after anchors (context stays with the session).
+      const label = (url.searchParams.get("q") || "").slice(0, kind === "explain" ? 300 : 120);
+      const g = url.searchParams.get("g");
+      const target = kind === "explain"
+        ? {
+            before: (url.searchParams.get("b") || "").slice(0, 80),
+            after: (url.searchParams.get("a") || "").slice(0, 80),
+            granularity: (g === "word" || g === "sentence" ? g : "block") as "word" | "sentence" | "block",
+          }
+        : undefined;
+      if (c && label) await env.SESSION.get(env.SESSION.idFromName(c)).recordChoice(label, tapV, kind, target);
       // x=1 => XHR (stay on the page); otherwise a plain link tap => back to reader.
       if (url.searchParams.get("x") === "1") return new Response(null, { status: 204, headers: { "cache-control": "no-store" } });
       return Response.redirect(`${url.origin}${BASE}/${c}`, 302);

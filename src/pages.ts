@@ -116,6 +116,11 @@ export function readerPage(code: string): string {
   #flow .choice{display:block;border:2px solid #000;border-radius:10px;padding:14px 16px;margin:12px 0;font-size:1em;text-align:center;
     -webkit-column-break-inside:avoid;page-break-inside:avoid;break-inside:avoid} /* a button split across a page turn is untappable */
   #flow .sent{font-size:1em;font-weight:bold;padding:14px 0}
+  #flow span.mark{background:#000;color:#fff} /* inline only — no border/padding, so highlighting never reflows the columns */
+  /* explain-mode selection tray (same absolute-bottom pattern as #menu) */
+  #selbar{position:absolute;left:0;right:0;bottom:0;background:#fff;border-top:2px solid #000;padding:10px 16px 14px;display:none;z-index:11}
+  #selbar .spreview{font-size:17px;color:#555;margin:0 0 8px;overflow:hidden;white-space:nowrap}
+  #selbar .sbtn{display:inline-block;border:2px solid #000;border-radius:22px;padding:10px 18px;margin:0 10px 0 0;font-size:20px;font-weight:bold}
   /* tap-toggled control bar */
   #menu{position:absolute;left:0;right:0;bottom:0;background:#fff;border-top:2px solid #000;padding:10px 16px 14px;display:none;z-index:10}
   #menu .mrow{margin:8px 0}
@@ -144,9 +149,15 @@ export function readerPage(code: string): string {
   <div class=mrow>
     <a href="#" class=qbtn data-q="&#8635; simpler">&#8635; simpler</a>
     <a href="#" class=qbtn data-q="&#8594; more">&#8594; more</a>
-    <a href="#" class=qbtn data-q="&#9998; explain">&#9998; explain</a>
+    <a href="#" id=qexplain class=qbtn>&#9998; explain&hellip;</a>
   </div>
   <p class=mhint>Tap left / right edge to turn the page &middot; center for this menu</p>
+</div>
+<div id=selbar>
+  <p class=spreview id=spreview></p>
+  <a href="#" id=sbword class=sbtn>Explain word</a>
+  <a href="#" id=sbsent class=sbtn>Sentence</a>
+  <a href="#" id=sbcancel class=sbtn>Cancel</a>
 </div>
 <div id=foot></div>
 <script>
@@ -171,7 +182,14 @@ export function readerPage(code: string): string {
       flow=document.getElementById('flow'),
       menu=document.getElementById('menu'),
       pageind=document.getElementById('pageind'),
-      foot=document.getElementById('foot');
+      foot=document.getElementById('foot'),
+      selbar=document.getElementById('selbar'),
+      spreview=document.getElementById('spreview'),
+      sbword=document.getElementById('sbword'),
+      sbsent=document.getElementById('sbsent');
+  // explain mode: armed via menu ✎ explain…; the next content tap designates a
+  // word (caretRangeFromPoint) or a block (fallback), confirmed in #selbar.
+  var exMode=false, exSel=null, exMark=null;
 
   function vw(){return window.innerWidth||document.documentElement.clientWidth;}
   function vh(){return window.innerHeight||document.documentElement.clientHeight;}
@@ -230,6 +248,11 @@ export function readerPage(code: string): string {
     if(menuOpen){ toggleMenu(false); return; }
     var W=vw();
     var cx=(e.clientX!=null)?e.clientX:((e.changedTouches&&e.changedTouches[0])?e.changedTouches[0].clientX:W/2);
+    if(exMode){ // whole surface designates while armed — text sits under the page-turn thirds too
+      var cy=(e.clientY!=null)?e.clientY:((e.changedTouches&&e.changedTouches[0])?e.changedTouches[0].clientY:vh()/2);
+      pickAt(cx,cy,e.target||e.srcElement);
+      return;
+    }
     if(cx>W*0.66) next();
     else if(cx<W*0.34) prev();
     else toggleMenu(true);
@@ -238,17 +261,18 @@ export function readerPage(code: string): string {
   // Feedback lands in the always-on footer (the menu — and pageind with it — is
   // usually closed by the time a tap is sent). onFail lets a choice restore its
   // buttons: on flaky e-reader wifi a silently lost tap left the exercise stuck.
-  function tap(label,onFail,kind){
+  function tap(label,onFail,kind,extra){
     active(); // a tap means an answer is coming — poll fast for it
     var x=new XMLHttpRequest();
-    x.open('GET',base+'/c/'+code+'?x=1&v='+v+'&k='+(kind||'a')+'&q='+encodeURIComponent(label),true);
+    x.open('GET',base+'/c/'+code+'?x=1&v='+v+'&k='+(kind||'a')+'&q='+encodeURIComponent(label)+(extra||''),true);
     x.onreadystatechange=function(){
       if(x.readyState===4){
         if(x.status>=200&&x.status<300){
-          // Quick actions have no waiting question — the request sits until
-          // Claude next looks. Say so, and keep saying so (no revert timer);
-          // any page turn or new doc naturally reclaims the footer.
+          // Quick actions and explain-requests have no waiting question — the
+          // request sits until Claude next looks. Say so, and keep saying so
+          // (no revert timer); any page turn or new doc reclaims the footer.
           if(kind==='q'){ foot.innerHTML='✓ '+label+' — Claude will see it'; }
+          else if(kind==='e'){ foot.innerHTML='✓ explain requested — Claude will see it'; }
           else { foot.innerHTML='✓ sent'; setTimeout(showPage,1500); }
           pollNow();
         }
@@ -257,6 +281,144 @@ export function readerPage(code: string): string {
     };
     x.send();
     foot.innerHTML='sending…';
+  }
+
+  // ---- explain mode: designate a word / sentence / block for the driving
+  // session to explain in context. Wire: k=e, q=quote, b/a=anchors, g=granularity.
+  var WCH=/[A-Za-z0-9À-ɏ'’-]/;
+  function collapse(s){ return (s||'').replace(/\s+/g,' ').replace(/^ | $/g,''); }
+  function inFlow(n){ while(n){ if(n===flow) return true; n=n.parentNode; } return false; }
+  function inSvg(n){ while(n&&n!==flow){ if(n.nodeType===1&&n.tagName&&n.tagName.toLowerCase()==='svg') return true; n=n.parentNode; } return false; }
+  function nearestBlock(n){
+    while(n&&n!==flow){
+      if(n.nodeType===1){ var t=n.tagName.toLowerCase();
+        if(t==='p'||t==='li'||t==='blockquote'||t==='h1'||t==='h2'||t==='h3'||t==='h4'||t==='td'||t==='th'||t==='pre'||t==='div') return n; }
+      n=n.parentNode;
+    }
+    return null;
+  }
+  function armExplain(){
+    exMode=true; clearSel(); hideSelbar();
+    foot.innerHTML='&#9998; Tap any word to explain it &middot; tap here to cancel';
+    foot.style.pointerEvents='auto';
+    foot.onclick=function(){ cancelExplain(); };
+  }
+  function cancelExplain(){
+    exMode=false; clearSel(); hideSelbar();
+    foot.style.pointerEvents='none'; foot.onclick=null;
+    showPage(); // restores the page label in the footer
+  }
+  function clearSel(){
+    if(exMark&&exMark.parentNode){
+      var p=exMark.parentNode;
+      p.replaceChild(document.createTextNode(exMark.firstChild?exMark.firstChild.data:''),exMark);
+      try{p.normalize();}catch(e){}
+    }
+    exMark=null; exSel=null;
+  }
+  function hideSelbar(){ selbar.style.display='none'; }
+  function pickAt(x,y,tgt){
+    clearSel(); // before hit-testing: normalize() from a prior selection must not invalidate the new node
+    var node=null, off=0;
+    try{
+      if(document.caretRangeFromPoint){
+        var r=document.caretRangeFromPoint(x,y);
+        if(r&&r.startContainer&&r.startContainer.nodeType===3&&inFlow(r.startContainer)&&!inSvg(r.startContainer)){
+          node=r.startContainer; off=r.startOffset;
+        }
+      }
+    }catch(e){ node=null; }
+    if(node){ selectWord(node,off); return; }
+    // fallback: block-level target (also the path for SVG labels and engines without caretRangeFromPoint)
+    var el=tgt&&inFlow(tgt)?tgt:(document.elementFromPoint?document.elementFromPoint(x,y):null);
+    var blk=el?nearestBlock(el.nodeType===3?el.parentNode:el):null;
+    if(blk){ exSel={mode:'b',blockEl:blk}; showSelbar(); }
+    else { foot.innerHTML='&#9998; Nothing there &mdash; tap a word, or tap here to cancel'; }
+  }
+  function selectWord(node,off){
+    var t=node.data||'';
+    var i=off; if(i>=t.length)i=t.length-1; if(i<0)i=0;
+    if(!WCH.test(t.charAt(i))){ // tapped between words — nudge to the nearest word char
+      var j=1,found=-1;
+      while(j<=2&&found<0){
+        if(i-j>=0&&WCH.test(t.charAt(i-j)))found=i-j;
+        else if(i+j<t.length&&WCH.test(t.charAt(i+j)))found=i+j;
+        j++;
+      }
+      if(found<0){ var blk0=nearestBlock(node.parentNode); if(blk0){ exSel={mode:'b',blockEl:blk0}; showSelbar(); } return; }
+      i=found;
+    }
+    var s=i,e2=i;
+    while(s>0&&WCH.test(t.charAt(s-1)))s--;
+    while(e2<t.length-1&&WCH.test(t.charAt(e2+1)))e2++;
+    var word=t.substring(s,e2+1);
+    var mid=node.splitText(s); mid.splitText(e2+1-s);
+    var sp=document.createElement('span'); sp.className='mark';
+    mid.parentNode.replaceChild(sp,mid); sp.appendChild(mid);
+    exMark=sp;
+    exSel={mode:'w',word:word,blockEl:nearestBlock(sp)};
+    showSelbar();
+  }
+  function showSelbar(){
+    while(spreview.firstChild)spreview.removeChild(spreview.firstChild);
+    if(exSel.mode==='w'){
+      spreview.appendChild(document.createTextNode('“'+exSel.word+'”'));
+      sbword.innerHTML='Explain word'; sbsent.style.display='inline-block';
+    } else {
+      var bt=collapse(exSel.blockEl?exSel.blockEl.textContent:'');
+      spreview.appendChild(document.createTextNode('“'+bt.substring(0,60)+(bt.length>60?'…':'')+'”'));
+      sbword.innerHTML='Explain this block'; sbsent.style.display='none';
+    }
+    selbar.style.display='block';
+  }
+  function offsetInBlock(blk,target){ // document-order textContent offset of target's text start within blk
+    var o=0, done=false;
+    function walk(n){
+      if(done)return;
+      if(n===target){done=true;return;}
+      if(n.nodeType===3){o+=n.data.length;return;}
+      for(var i=0;i<n.childNodes.length;i++)walk(n.childNodes[i]);
+    }
+    walk(blk);
+    return done?o:-1;
+  }
+  function sentenceAround(){ // expand the marked word to sentence bounds within its block's textContent
+    var blk=exSel.blockEl; if(!blk||!exMark)return null;
+    var full=blk.textContent||'';
+    var o=offsetInBlock(blk,exMark); if(o<0)return null;
+    var s=o;
+    while(s>0){ var ch=full.charAt(s-1); if((ch==='.'||ch==='!'||ch==='?')&&/\s/.test(full.charAt(s)||' ')) break; s--; }
+    var j=o+exSel.word.length;
+    while(j<full.length){ var c2=full.charAt(j); j++; if(c2==='.'||c2==='!'||c2==='?') break; }
+    return {text:collapse(full.substring(s,j)),start:s,end:j,full:full};
+  }
+  function sendExplain(gran){
+    var q='',b='',a2='';
+    if(gran==='block'||!exMark){
+      gran='block';
+      q=collapse(exSel.blockEl?exSel.blockEl.textContent:'').substring(0,300);
+    } else if(gran==='sentence'){
+      var sn=sentenceAround();
+      if(!sn){ gran='word'; }
+      else{
+        q=sn.text.substring(0,300);
+        b=collapse(sn.full.substring(sn.start<80?0:sn.start-80,sn.start));
+        a2=collapse(sn.full.substring(sn.end,sn.end+80));
+      }
+    }
+    if(gran==='word'){
+      var blk=exSel.blockEl, o=blk?offsetInBlock(blk,exMark):-1;
+      q=exSel.word;
+      if(blk&&o>=0){ var full=blk.textContent||'';
+        b=collapse(full.substring(o<80?0:o-80,o));
+        a2=collapse(full.substring(o+q.length,o+q.length+80));
+      }
+    }
+    if(!q){ cancelExplain(); return; }
+    var extra='&g='+gran+(b?'&b='+encodeURIComponent(b):'')+(a2?'&a='+encodeURIComponent(a2):'');
+    hideSelbar(); clearSel();
+    exMode=false; foot.style.pointerEvents='none'; foot.onclick=null;
+    tap(q,null,'e',extra);
   }
   function mkChoice(label){
     var el=document.createElement('a'); el.className='choice'; el.href='#';
@@ -287,6 +449,7 @@ export function readerPage(code: string): string {
     showPage();
   }
   function renderDoc(d){
+    if(exMode)cancelExplain(); else clearSel(); // stale marks/offsets must not outlive their doc
     var firstDoc=(pageEl.style.display!=='block');
     var raw=d.html||'';
     var isAppend=!!lastHtml&&raw.indexOf(lastHtml)===0&&raw.length>lastHtml.length;
@@ -311,6 +474,11 @@ export function readerPage(code: string): string {
 
   document.getElementById('fminus').onclick=function(e){if(e&&e.preventDefault)e.preventDefault();setFont(-2);return false;};
   document.getElementById('fplus').onclick=function(e){if(e&&e.preventDefault)e.preventDefault();setFont(2);return false;};
+  document.getElementById('qexplain').onclick=function(e){if(e&&e.preventDefault)e.preventDefault();toggleMenu(false);armExplain();return false;};
+  sbword.onclick=function(e){if(e&&e.preventDefault)e.preventDefault();sendExplain(exSel&&exSel.mode==='w'?'word':'block');return false;};
+  sbsent.onclick=function(e){if(e&&e.preventDefault)e.preventDefault();sendExplain('sentence');return false;};
+  document.getElementById('sbcancel').onclick=function(e){if(e&&e.preventDefault)e.preventDefault();clearSel();hideSelbar();
+    foot.innerHTML='&#9998; Tap any word to explain it &middot; tap here to cancel';return false;}; // deselect, stay armed — a mis-tap is cheap
   var allA=menu.getElementsByTagName('a');
   for(var k=0;k<allA.length;k++){ (function(btn){
     if(btn.getAttribute('data-q')==null) return;

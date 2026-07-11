@@ -15,11 +15,17 @@ const CONNECTED_MS = 45_000;
 // client pages loaded before kinds existed.
 const QUICK = ["↻ simpler", "→ more", "✎ explain"];
 
-type TapKind = "answer" | "quick";
-type Choice = { label: string; at: number; v: number; kind?: TapKind };
+type TapKind = "answer" | "quick" | "explain";
+// Explain taps carry a quote locator, not context: the driving session authored
+// the doc, so quote + approximate before/after anchors are enough to find the
+// spot in its own copy. granularity says what the user designated.
+type Target = { before: string; after: string; granularity: "word" | "sentence" | "block" };
+type Choice = { label: string; at: number; v: number; kind?: TapKind; target?: Target };
 type Read = { page: number; pages: number; at: number };
 
-const isQuick = (c: Choice): boolean => (c.kind ? c.kind === "quick" : QUICK.indexOf(c.label) !== -1);
+const kindOf = (c: Choice): TapKind => c.kind ?? (QUICK.indexOf(c.label) !== -1 ? "quick" : "answer");
+// Requests (quick, explain) survive a new send; only answer-taps go stale with their doc.
+const isRequest = (c: Choice): boolean => kindOf(c) !== "answer";
 
 export class Session extends DurableObject {
   // Tap feed: /reader/w/<code> upgrades here. Each recorded tap goes out as one
@@ -37,7 +43,7 @@ export class Session extends DurableObject {
     // doesn't sit blind on a pending it will never see a frame for.
     const v = (await this.ctx.storage.get<number>("v")) ?? 0;
     const c = (await this.ctx.storage.get<Choice>("choice")) ?? null;
-    pair[1].send(JSON.stringify({ type: "hello", v, pending: c ? { label: c.label, v: c.v, kind: c.kind ?? (isQuick(c) ? "quick" : "answer") } : null }));
+    pair[1].send(JSON.stringify({ type: "hello", v, pending: c ? { label: c.label, v: c.v, kind: kindOf(c), target: c.target } : null }));
     return new Response(null, { status: 101, webSocket: pair[0] });
   }
 
@@ -59,7 +65,7 @@ export class Session extends DurableObject {
     const v = ((await this.ctx.storage.get<number>("v")) ?? 0) + 1;
     await this.ctx.storage.put({ v, html, title, choices, md, updatedAt: Date.now() });
     const c = await this.ctx.storage.get<Choice>("choice");
-    if (c && !isQuick(c)) await this.ctx.storage.delete("choice");
+    if (c && !isRequest(c)) await this.ctx.storage.delete("choice");
     await this.ctx.storage.setAlarm(Date.now() + TTL_MS);
     return v;
   }
@@ -92,12 +98,12 @@ export class Session extends DurableObject {
     };
   }
 
-  // The reader taps a button/quick-action → record it (last tap wins), scoped
-  // to the doc version it was tapped on, typed by kind (see TapKind).
-  async recordChoice(label: string, v = 0, kind?: TapKind): Promise<void> {
+  // The reader taps a button/quick-action/explain-target → record it (last tap
+  // wins), scoped to the doc version it was tapped on, typed by kind (see TapKind).
+  async recordChoice(label: string, v = 0, kind?: TapKind, target?: Target): Promise<void> {
     const k: TapKind = kind ?? (QUICK.indexOf(label) !== -1 ? "quick" : "answer");
-    await this.ctx.storage.put("choice", { label, at: Date.now(), v, kind: k } satisfies Choice);
-    this.broadcast({ type: "tap", label, v, kind: k, at: Date.now() });
+    await this.ctx.storage.put("choice", { label, at: Date.now(), v, kind: k, target } satisfies Choice);
+    this.broadcast({ type: "tap", label, v, kind: k, target, at: Date.now() });
   }
 
   // reader_await consumes the pending tap (so it isn't returned twice).
@@ -108,7 +114,7 @@ export class Session extends DurableObject {
     if (!c) return null;
     await this.ctx.storage.delete("choice");
     if (minV && c.v && c.v < minV) return null;
-    return { ...c, kind: c.kind ?? (isQuick(c) ? "quick" : "answer") };
+    return { ...c, kind: kindOf(c) };
   }
 
   async status(): Promise<{
@@ -126,7 +132,7 @@ export class Session extends DurableObject {
       lastSeenS: lastPoll ? Math.round((Date.now() - lastPoll) / 1000) : null,
       reading: read,
       pending: pending?.label ?? null,
-      pendingKind: pending ? (isQuick(pending) ? "quick" : "answer") : null,
+      pendingKind: pending ? kindOf(pending) : null,
     };
   }
 
