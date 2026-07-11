@@ -57,6 +57,7 @@ export function landingPage(): string {
     </li>
   </ol>
   <p class=foot>No account, nothing saved. The code expires on its own.</p>
+  <p class=foot>Reading on this device right now? <a href="${BASE}/new">Get a code</a> &mdash; some e-readers aren't auto-detected.</p>
 </main>
 <span id=live role=status aria-live=polite class=sr></span>
 <script>
@@ -77,7 +78,7 @@ export function readerPage(code: string): string {
 <title>Reader ${code}</title>
 <style>
   html,body{margin:0;padding:0;height:100%;background:#fff;color:#000;-webkit-text-size-adjust:100%}
-  body{font-family:Georgia,"Times New Roman",serif}
+  body{font-family:Georgia,"Times New Roman",serif;width:100%} /* old Kindle WebKit misreports clientWidth without an explicit body width */
   a{color:#000;text-decoration:none}
   /* pairing */
   .pair{text-align:center;padding:54px 16px}
@@ -87,15 +88,19 @@ export function readerPage(code: string): string {
   .pair .hint b{color:#000}
   .pair .alt{font-size:18px;color:#888;line-height:1.45;margin-top:22px}
   .pair .wait{font-size:18px;color:#888;margin-top:40px}
-  /* paginated reader */
-  #page{position:fixed;top:0;left:0;right:0;bottom:0;overflow:hidden;display:none}
+  /* paginated reader — absolute, not fixed: position:fixed is documented broken
+     on Kindle-era WebKit; with the document never scrolling they're equivalent */
+  #page{position:absolute;top:0;left:0;right:0;bottom:0;overflow:hidden;display:none}
   #flow{line-height:1.5;-webkit-column-fill:auto;column-fill:auto}
   #flow h1{font-size:1.55em;line-height:1.15;margin:0 0 .5em}
   #flow h2{font-size:1.22em;line-height:1.25;margin:1em 0 .3em;font-weight:bold}
   #flow h3{font-size:1.1em;line-height:1.25;margin:1em 0 .3em;font-weight:bold}
   #flow h4{font-size:1em;margin:1em 0 .3em;font-weight:bold}
   #flow p{margin:0 0 .85em;text-align:justify;-webkit-hyphens:auto;-moz-hyphens:auto;hyphens:auto}
-  #flow ul{margin:0 0 .85em;padding-left:1.2em}
+  #flow ul,#flow ol{margin:0 0 .85em;padding-left:1.4em}
+  #flow blockquote{margin:0 0 .85em;padding-left:.8em;border-left:3px solid #000;font-style:italic}
+  #flow code{font-family:"Courier New",monospace;font-size:.85em;background:#f0f0f0;padding:1px 4px}
+  #flow hr{border:none;border-top:1px solid #000;margin:1.2em 0}
   #flow img{max-width:100%;height:auto}
   #flow table{border-collapse:collapse;width:100%;margin:.9em 0;font-size:.82em}
   #flow th,#flow td{border:1px solid #000;padding:7px 9px;text-align:left;vertical-align:top}
@@ -103,16 +108,17 @@ export function readerPage(code: string): string {
   #flow pre{background:#f4f4f4;padding:10px;font-size:.78em;overflow:hidden}
   #flow .svgwrap{margin:1em 0;text-align:center}
   #flow .svgwrap svg{max-width:100%;height:auto}
-  #flow .choice{display:block;border:2px solid #000;border-radius:10px;padding:14px 16px;margin:12px 0;font-size:1em;text-align:center}
+  #flow .choice{display:block;border:2px solid #000;border-radius:10px;padding:14px 16px;margin:12px 0;font-size:1em;text-align:center;
+    -webkit-column-break-inside:avoid;page-break-inside:avoid;break-inside:avoid} /* a button split across a page turn is untappable */
   #flow .sent{font-size:1em;font-weight:bold;padding:14px 0}
   /* tap-toggled control bar */
-  #menu{position:fixed;left:0;right:0;bottom:0;background:#fff;border-top:2px solid #000;padding:10px 16px 14px;display:none;z-index:10}
+  #menu{position:absolute;left:0;right:0;bottom:0;background:#fff;border-top:2px solid #000;padding:10px 16px 14px;display:none;z-index:10}
   #menu .mrow{margin:8px 0}
   #menu .mbtn,#menu .qbtn{display:inline-block;border:1px solid #000;border-radius:22px;padding:9px 16px;margin:0 8px 0 0;font-size:20px}
   #menu .pageind{float:right;color:#555;font-size:18px;padding-top:10px}
   #menu .mhint{font-size:15px;color:#888;margin:2px 0 0}
   /* always-on progress footer (Kindle-style), sits in the bottom page margin */
-  #foot{position:fixed;left:0;right:0;bottom:0;height:36px;line-height:36px;text-align:center;
+  #foot{position:absolute;left:0;right:0;bottom:0;height:36px;line-height:36px;text-align:center;
     color:#999;font-size:15px;background:#fff;display:none;z-index:5;pointer-events:none}
 </style></head><body>
 <div id=h class=pair>
@@ -120,6 +126,7 @@ export function readerPage(code: string): string {
   <p class=code>${code}</p>
   <p class=hint>In Claude, say:<br><b>&ldquo;send that to my reader, code ${code}&rdquo;</b></p>
   <p class=alt>&mdash; or just snap a photo of this screen and attach it to Claude. It reads the code and sends.</p>
+  <p class=alt>Bookmark this page &mdash; the code stays yours when you come back.</p>
   <p class=wait>Waiting&hellip; this page updates on its own.</p>
 </div>
 <div id=page><div id=flow></div></div>
@@ -142,9 +149,17 @@ export function readerPage(code: string): string {
   var code=${JSON.stringify(code)};
   var base=${JSON.stringify(BASE)};
   var PAD=36, VPAD=46;
-  var v=0, page=0, pages=1, menuOpen=false;
-  var fontPx=parseInt(localStorage.getItem('lr_font'),10)||27;
+  var v=0, page=0, pages=1, menuOpen=false, lastHtml='';
+  var fontPx=27; // localStorage can be disabled outright on e-readers — a throw here killed the whole script
+  try{fontPx=parseInt(localStorage.getItem('lr_font'),10)||27;}catch(e){}
   if(fontPx<18)fontPx=18; if(fontPx>46)fontPx=46;
+  var lastActive=+new Date();
+  function active(){lastActive=+new Date();}
+  // The Kindle browser reloads/crashes freely; remember where we were so a cold
+  // reload of the same doc version lands on the same page, not page 1.
+  var savedPos=null;
+  try{var sp=(localStorage.getItem('lr_pos')||'').split(':');
+    if(sp[0]===code)savedPos={v:parseInt(sp[1],10),page:parseInt(sp[2],10)};}catch(e){}
 
   var h=document.getElementById('h'),
       pageEl=document.getElementById('page'),
@@ -183,20 +198,29 @@ export function readerPage(code: string): string {
     var x=-page*vw();
     flow.style.webkitTransform='translateX('+x+'px)';
     flow.style.transform='translateX('+x+'px)';
+    // the Kindle document is always scrollable regardless of overflow:hidden —
+    // pin it back after every page turn (window.scrollTo doesn't exist there)
+    try{document.documentElement.scrollTop=0;document.body.scrollTop=0;}catch(e){}
     var pct=(pages>1)?Math.round(page/(pages-1)*100):100;
     var label=(page+1)+' / '+pages+' · '+pct+'%';
     pageind.innerHTML=label; foot.innerHTML=label;
+    try{localStorage.setItem('lr_pos',code+':'+v+':'+page);}catch(e){}
   }
-  function next(){ if(page<pages-1){page++;showPage();} }
-  function prev(){ if(page>0){page--;showPage();} }
+  function next(){ if(page<pages-1){page++;active();showPage();} }
+  function prev(){ if(page>0){page--;active();showPage();} }
   function setFont(d){ fontPx+=d; if(fontPx<18)fontPx=18; if(fontPx>46)fontPx=46;
-    try{localStorage.setItem('lr_font',fontPx);}catch(e){} page=0; paginate(); }
+    try{localStorage.setItem('lr_font',fontPx);}catch(e){}
+    var frac=(pages>1)?(page/(pages-1)):0;   // hold the reading position through the reflow
+    paginate();
+    page=Math.round(frac*(pages-1)); if(page>=pages)page=pages-1; if(page<0)page=0;
+    showPage(); }
   function toggleMenu(open){ menuOpen=open; menu.style.display=open?'block':'none'; }
 
   function isBtn(t){ while(t&&t!==document){ if(t.tagName){ var tn=t.tagName.toLowerCase();
       if(tn==='a'||tn==='button') return true; } t=t.parentNode; } return false; }
 
   function onTap(e){
+    active();
     if(isBtn(e.target||e.srcElement)) return;
     if(menuOpen){ toggleMenu(false); return; }
     var W=vw();
@@ -206,45 +230,71 @@ export function readerPage(code: string): string {
     else toggleMenu(true);
   }
 
-  function tap(label){
+  // Feedback lands in the always-on footer (the menu — and pageind with it — is
+  // usually closed by the time a tap is sent). onFail lets a choice restore its
+  // buttons: on flaky e-reader wifi a silently lost tap left the exercise stuck.
+  function tap(label,onFail){
+    active(); // a tap means an answer is coming — poll fast for it
     var x=new XMLHttpRequest();
-    x.open('GET',base+'/c/'+code+'?x=1&q='+encodeURIComponent(label),true);
+    x.open('GET',base+'/c/'+code+'?x=1&v='+v+'&q='+encodeURIComponent(label),true);
+    x.onreadystatechange=function(){
+      if(x.readyState===4){
+        if(x.status>=200&&x.status<300){ foot.innerHTML='✓ sent'; setTimeout(showPage,1500); }
+        else { if(onFail)onFail(); foot.innerHTML='✗ not sent — tap again'; setTimeout(showPage,2500); }
+      }
+    };
     x.send();
-    pageind.innerHTML='✓ sent';
-    setTimeout(showPage,1500);
+    foot.innerHTML='sending…';
   }
   function mkChoice(label){
     var el=document.createElement('a'); el.className='choice'; el.href='#';
     el.appendChild(document.createTextNode(label));
-    el.onclick=function(e){ if(e&&e.preventDefault)e.preventDefault(); markChosen(el,label); tap(label); return false; };
+    el.onclick=function(e){ if(e&&e.preventDefault)e.preventDefault(); chose(el,label); return false; };
     return el;
   }
-  function markChosen(el,label){
+  function chose(el,label){
     var wrap=el.parentNode; if(!wrap||!wrap.parentNode)return;
     var s=document.createElement('div'); s.className='sent';
     s.appendChild(document.createTextNode('✓ '+label));
     wrap.parentNode.replaceChild(s,wrap);
+    paginate(); // buttons collapsed to one line — repaginate so the page count isn't stale
+    tap(label,function(){ if(s.parentNode){ s.parentNode.replaceChild(wrap,s); paginate(); } });
   }
-  function applyPos(firstLoad,wasAtEnd,frac){
-    if(firstLoad)page=0;               // brand-new doc: start at the top
-    else if(wasAtEnd)page=pages-1;     // was reading the tail: follow new content as Claude appends
-    else page=Math.round(frac*(pages-1)); // else hold the same place through the reflow
+  function applyPos(isAppend,wasAtEnd,frac,curV){
+    // Position carries over only when the new doc *extends* the old one (Claude
+    // appending to a live doc). A replacement — a quiz reveal, a fresh answer —
+    // always starts at the top; anchoring it to the old position showed the
+    // tail of the reveal when the choices had spilled onto the last page.
+    if(!isAppend){
+      page=0;
+      if(savedPos&&savedPos.v===curV&&savedPos.page>0&&savedPos.page<pages)page=savedPos.page; // same doc after a reload: resume
+    }
+    else if(wasAtEnd)page=pages-1;     // was reading the tail: follow new content
+    else page=Math.round(frac*(pages-1)); // hold the same place through the reflow
     if(page>=pages)page=pages-1; if(page<0)page=0;
     showPage();
   }
   function renderDoc(d){
-    var firstLoad=(pageEl.style.display!=='block');
+    var firstDoc=(pageEl.style.display!=='block');
+    var raw=d.html||'';
+    var isAppend=!!lastHtml&&raw.indexOf(lastHtml)===0&&raw.length>lastHtml.length;
+    lastHtml=raw;
+    if(savedPos&&savedPos.v!==d.v)savedPos=null; // a different doc than the one we reloaded from
     var wasAtEnd=(page>=pages-1);
     var frac=(pages>1)?(page/(pages-1)):0;
-    flow.innerHTML=d.html||'';
+    flow.innerHTML=raw;
     if(d.title){ var hh=document.createElement('h1'); hh.appendChild(document.createTextNode(d.title));
       flow.insertBefore(hh, flow.firstChild); document.title=d.title; }
     if(d.choices&&d.choices.length){ var wrap=document.createElement('div'); wrap.className='choices';
       for(var i=0;i<d.choices.length;i++) wrap.appendChild(mkChoice(d.choices[i])); flow.appendChild(wrap); }
     h.style.display='none'; pageEl.style.display='block'; foot.style.display='block';
     layout(); pages=Math.max(1, Math.round(flow.scrollWidth/vw()));
-    applyPos(firstLoad,wasAtEnd,frac);
-    setTimeout(function(){ layout(); pages=Math.max(1, Math.round(flow.scrollWidth/vw())); applyPos(firstLoad,wasAtEnd,frac); },300); // settle after image/svg layout, then re-anchor
+    applyPos(isAppend,wasAtEnd,frac,d.v);
+    setTimeout(function(){ layout(); pages=Math.max(1, Math.round(flow.scrollWidth/vw())); applyPos(isAppend,wasAtEnd,frac,d.v); },300); // settle after image/svg layout, then re-anchor
+    if(firstDoc){ // the how-to lives in the (hidden) menu — surface it once, in the footer
+      setTimeout(function(){ foot.innerHTML='Tap right edge to turn the page · center for menu'; },350);
+      setTimeout(showPage,9000); // any page turn restores the label sooner
+    }
   }
 
   document.getElementById('fminus').onclick=function(e){if(e&&e.preventDefault)e.preventDefault();setFont(-2);return false;};
@@ -258,14 +308,25 @@ export function readerPage(code: string): string {
   pageEl.onclick=onTap;
   if(window.addEventListener){ window.addEventListener('resize',function(){ paginate(); },false); }
 
+  // Wi-Fi held awake is the battery cost on e-ink — back off when idle, snap
+  // back to 2.5s on any interaction or new content.
+  function pollDelay(){ var idle=(+new Date())-lastActive;
+    return idle<300000?2500:(idle<1800000?10000:30000); }
   function poll(){
     var x=new XMLHttpRequest();
-    x.open('GET',base+'/s/'+code+'?v='+v,true);
+    var settled=false;
+    function again(){ if(settled)return; settled=true; setTimeout(poll,pollDelay()); }
+    // watchdog: a hung XHR (flaky e-reader wifi) used to stop polling forever
+    var dog=setTimeout(function(){ try{x.abort();}catch(e){} again(); },20000);
+    x.open('GET',base+'/s/'+code+'?v='+v+'&p='+page+'&n='+pages,true); // p/n: reading-position heartbeat
     x.onreadystatechange=function(){
       if(x.readyState===4){
+        clearTimeout(dog);
         if(x.status===200){ try{ var d=JSON.parse(x.responseText);
-          if(d&&d.v>v){ v=d.v; renderDoc(d); } }catch(e){} }
-        setTimeout(poll,2500);
+          // !== not >: after the session's 6h TTL wipe the server restarts at v=1,
+          // and a page left open (holding a higher v) would otherwise go silently deaf
+          if(d&&d.v&&d.v!==v){ v=d.v; active(); renderDoc(d); } }catch(e){} }
+        again();
       }
     };
     x.send();

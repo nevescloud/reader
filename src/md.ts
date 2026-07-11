@@ -9,12 +9,22 @@ function esc(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
 
+// Same footgun threat model as sanitizeSvg: the author is Claude, but a
+// javascript: URL shouldn't survive a paste-through either.
+function safeUrl(u: string): string {
+  return /^https?:\/\//i.test(u.trim()) ? u.trim() : "";
+}
+
 function inline(s: string): string {
   s = esc(s);
-  s = s.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, (_m, a, u) => `<img alt="${a}" src="${u}">`);
-  s = s.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_m, t, u) => `<a href="${u}">${t}</a>`);
+  // Code spans first, parked in placeholders so *…* inside `code` stays literal.
+  const codes: string[] = [];
+  s = s.replace(/`([^`]+)`/g, (_m, c) => { codes.push(c); return `\u0000${codes.length - 1}\u0000`; });
+  s = s.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, (_m, a, u) => { const h = safeUrl(u); return h ? `<img alt="${a}" src="${h}">` : a; });
+  s = s.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_m, t, u) => { const h = safeUrl(u); return h ? `<a href="${h}">${t}</a>` : t; });
   s = s.replace(/\*\*([^*]+)\*\*/g, "<b>$1</b>");
   s = s.replace(/(?<!\*)\*([^*]+)\*(?!\*)/g, "<i>$1</i>");
+  s = s.replace(/\u0000(\d+)\u0000/g, (_m, i) => `<code>${codes[+i]}</code>`);
   return s;
 }
 
@@ -38,6 +48,12 @@ function cells(row: string): string[] {
 }
 const isTableSep = (l: string): boolean => /\|/.test(l) && /^[\s|:-]+$/.test(l) && /-/.test(l);
 const isTableRow = (l: string): boolean => l.includes("|");
+// Indent-tolerant: a nested "  - item" flattens into the same list instead of
+// snapping the list shut and rendering as a literal-dash paragraph.
+const isUl = (l: string): boolean => /^\s{0,8}[-*]\s+/.test(l);
+const isOl = (l: string): boolean => /^\s{0,8}\d{1,3}[.)]\s+/.test(l);
+const isQuote = (l: string): boolean => /^\s{0,3}>/.test(l);
+const isHr = (l: string): boolean => /^(?:-{3,}|\*{3,}|_{3,})$/.test(l.trim());
 
 export function mdToHtml(md: string): string {
   const lines = md.replace(/\r\n/g, "\n").trim().split("\n");
@@ -85,20 +101,46 @@ export function mdToHtml(md: string): string {
       continue;
     }
 
+    // horizontal rule (checked before lists: "---" would otherwise never match)
+    if (isHr(line)) { out.push("<hr>"); i++; continue; }
+
+    // blockquote: consecutive > lines, one quote block
+    if (isQuote(line)) {
+      const buf: string[] = [];
+      while (i < lines.length && isQuote(lines[i])) { buf.push(lines[i].replace(/^\s{0,3}>\s?/, "")); i++; }
+      out.push(`<blockquote><p>${inline(buf.join(" "))}</p></blockquote>`);
+      continue;
+    }
+
     // unordered list
-    if (/^[-*]\s+/.test(line)) {
+    if (isUl(line)) {
       const items: string[] = [];
-      while (i < lines.length && /^[-*]\s+/.test(lines[i])) { items.push(`<li>${inline(lines[i].replace(/^[-*]\s+/, ""))}</li>`); i++; }
+      while (i < lines.length && isUl(lines[i])) { items.push(`<li>${inline(lines[i].replace(/^\s*[-*]\s+/, ""))}</li>`); i++; }
       out.push("<ul>" + items.join("") + "</ul>");
       continue;
     }
 
+    // ordered list — Claude numbers things constantly; these used to collapse
+    // into a single run-on paragraph
+    if (isOl(line)) {
+      const start = parseInt(line.trim(), 10);
+      const items: string[] = [];
+      while (i < lines.length && isOl(lines[i])) { items.push(`<li>${inline(lines[i].replace(/^\s*\d{1,3}[.)]\s+/, ""))}</li>`); i++; }
+      out.push(`<ol${start !== 1 ? ` start="${start}"` : ""}>` + items.join("") + "</ol>");
+      continue;
+    }
+
     // paragraph: gather consecutive plain lines
+    const blocky = (idx: number): boolean =>
+      /^(#{1,6})\s+/.test(lines[idx]) || isUl(lines[idx]) || isOl(lines[idx]) || isQuote(lines[idx]) || isHr(lines[idx]) ||
+      /^```/.test(lines[idx].trim()) || /^<svg[\s>]/i.test(lines[idx].trim()) ||
+      (isTableRow(lines[idx]) && idx + 1 < lines.length && isTableSep(lines[idx + 1]));
     const para: string[] = [];
-    while (i < lines.length && lines[i].trim() !== "" && !/^(#{1,6})\s+/.test(lines[i]) && !/^[-*]\s+/.test(lines[i]) && !/^```/.test(lines[i].trim()) && !/^<svg[\s>]/i.test(lines[i].trim()) && !(isTableRow(lines[i]) && i + 1 < lines.length && isTableSep(lines[i + 1]))) {
+    while (i < lines.length && lines[i].trim() !== "" && !blocky(i)) {
       para.push(lines[i]); i++;
     }
     if (para.length) out.push(`<p>${inline(para.join(" "))}</p>`);
+    else i++; // a blocky line the dispatchers above didn't consume — never stall
   }
   return out.join("");
 }

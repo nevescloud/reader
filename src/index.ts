@@ -36,26 +36,42 @@ export default {
     // --- internal write API: shared-secret bearer (see authed()). ---
     if (p === `${BASE}/_api/send` && req.method === "POST") {
       if (!authed(req, env)) return json({ error: "unauthorized" }, 401);
-      const { code, content, title, choices } = (await req.json().catch(() => ({}))) as {
-        code?: string; content?: string; title?: string; choices?: string[];
+      const { code, content, title, choices, mode } = (await req.json().catch(() => ({}))) as {
+        code?: string; content?: string; title?: string; choices?: string[]; mode?: string;
       };
       const c = normCode(code || "");
-      if (c.length < 4) return json({ error: "bad code" }, 400);
-      const { title: t, html: body } = render(content || "", title);
-      const opts = Array.isArray(choices) ? choices.filter((s) => typeof s === "string" && s.trim()).slice(0, 8) : [];
-      const v = await env.SESSION.get(env.SESSION.idFromName(c)).setDoc(body, t, opts);
-      return json({ code: c, v, title: t, choices: opts });
+      if (c.length !== 5) return json({ error: "bad code" }, 400);
+      const stub = env.SESSION.get(env.SESSION.idFromName(c));
+      const explicit = Array.isArray(choices) ? choices.filter((s) => typeof s === "string" && s.trim()).slice(0, 8) : null;
+      let md = (content || "").trim();
+      let opts = explicit ?? [];
+      let wantTitle = title;
+      if (mode === "append") {
+        // Append re-renders the whole doc from concatenated markdown, so the new
+        // html string is an exact extension of the old one — which is what the
+        // device keys on to hold the reading position instead of jumping to page 1.
+        const prev = await stub.getMd();
+        if (prev.md) md = `${prev.md}\n\n${md}`;
+        if (!explicit) opts = prev.choices; // append leaves buttons alone unless told otherwise
+        if (!wantTitle) wantTitle = prev.title || undefined;
+      }
+      const { title: t, html: body } = render(md, wantTitle);
+      const v = await stub.setDoc(body, t, opts, md);
+      return json({ code: c, v, title: t, choices: opts, mode: mode === "append" ? "append" : "replace" });
     }
     // Long-poll for the user's tap. Blocks up to ~timeout, consuming the choice.
+    // min_v scopes the wait to taps on that doc version or later (a tap from an
+    // older doc must not answer a newer question).
     if (p === `${BASE}/_api/await`) {
       if (!authed(req, env)) return json({ error: "unauthorized" }, 401);
       const c = normCode(url.searchParams.get("code") || "");
       if (!c) return json({ error: "bad code" }, 400);
       const ms = Math.min(Math.max(parseInt(url.searchParams.get("timeout") || "45", 10) || 45, 5), 55) * 1000;
+      const minV = parseInt(url.searchParams.get("min_v") || "0", 10) || 0;
       const stub = env.SESSION.get(env.SESSION.idFromName(c));
       const start = Date.now();
       while (Date.now() - start < ms) {
-        const choice = await stub.takeChoice();
+        const choice = await stub.takeChoice(minV);
         if (choice) return json({ choice });
         await sleep(1200);
       }
@@ -67,42 +83,61 @@ export default {
       const c = normCode(url.searchParams.get("code") || "");
       if (!c) return json({ error: "bad code" }, 400);
       const s = await env.SESSION.get(env.SESSION.idFromName(c)).status();
-      return json({ code: c, connected: s.connected, v: s.v });
+      return json({ code: c, connected: s.connected, v: s.v, title: s.title, lastSeenS: s.lastSeenS, reading: s.reading, pending: s.pending });
     }
 
     // --- public tap target: the reader records a choice/quick-action here. ---
     if (p.startsWith(`${BASE}/c/`)) {
       const c = normCode(decodeURIComponent(p.slice(`${BASE}/c/`.length)));
       const label = (url.searchParams.get("q") || "").slice(0, 120);
-      if (c && label) await env.SESSION.get(env.SESSION.idFromName(c)).recordChoice(label);
+      const tapV = parseInt(url.searchParams.get("v") || "0", 10) || 0;
+      if (c && label) await env.SESSION.get(env.SESSION.idFromName(c)).recordChoice(label, tapV);
       // x=1 => XHR (stay on the page); otherwise a plain link tap => back to reader.
       if (url.searchParams.get("x") === "1") return new Response(null, { status: 204, headers: { "cache-control": "no-store" } });
       return Response.redirect(`${url.origin}${BASE}/${c}`, 302);
     }
 
-    // --- reader poll. ---
+    // --- reader poll (doubles as the reading-position heartbeat via p/n). ---
     if (p.startsWith(`${BASE}/s/`)) {
       const code = normCode(decodeURIComponent(p.slice(`${BASE}/s/`.length)));
       if (!code) return new Response("bad code", { status: 400 });
       const since = parseInt(url.searchParams.get("v") || "0", 10) || 0;
-      const r = await env.SESSION.get(env.SESSION.idFromName(code)).getSince(since);
+      const page = parseInt(url.searchParams.get("p") || "0", 10) || 0;
+      const pages = parseInt(url.searchParams.get("n") || "0", 10) || 0;
+      const r = await env.SESSION.get(env.SESSION.idFromName(code)).getSince(since, page, pages);
       const headers = { "content-type": "application/json", "cache-control": "no-store" };
       if (!r) return new Response(null, { status: 204, headers });
       return new Response(JSON.stringify(r), { headers });
     }
 
-    // --- /reader: setup page; an e-reader landing here gets a fresh code minted. ---
+    // A device revisiting bare /reader used to mint a fresh code every time,
+    // orphaning the code Claude had remembered. The last code rides a cookie so
+    // the bookmark / retyped-URL path is sticky; /reader/new opts out.
+    const cookieCode = normCode((req.headers.get("cookie") || "").match(/(?:^|;\s*)lr=([^;]+)/)?.[1] || "");
+    const stick = (code: string, to: Response): Response => {
+      const r = new Response(to.body, to);
+      r.headers.append("set-cookie", `lr=${code}; Path=${BASE}; Max-Age=172800; SameSite=Lax`);
+      return r;
+    };
+
+    // --- /reader/new: always a fresh code (pairing-page link + escape hatch). ---
+    if (p === `${BASE}/new`) {
+      const code = newCode();
+      return stick(code, Response.redirect(`${url.origin}${BASE}/${code}`, 302));
+    }
+    // --- /reader: setup page; an e-reader landing here gets its sticky code, else a fresh one. ---
     if (p === BASE || p === `${BASE}/`) {
       if (isEreader(req.headers.get("user-agent") || "")) {
-        return Response.redirect(`${url.origin}${BASE}/${newCode()}`, 302);
+        const code = cookieCode.length === 5 ? cookieCode : newCode();
+        return stick(code, Response.redirect(`${url.origin}${BASE}/${code}`, 302));
       }
       return html(landingPage());
     }
     // --- /reader/<code>: the reader page (any other sub-path is the code). ---
     if (p.startsWith(`${BASE}/`)) {
       const code = normCode(decodeURIComponent(p.slice(`${BASE}/`.length)));
-      if (!code) return Response.redirect(`${url.origin}${BASE}/${newCode()}`, 302);
-      return html(readerPage(code));
+      if (!code) return Response.redirect(`${url.origin}${BASE}/new`, 302);
+      return stick(code, html(readerPage(code)));
     }
 
     // --- bare apex => the reader entry. ---
