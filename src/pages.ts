@@ -57,7 +57,7 @@ export function landingPage(): string {
     </li>
   </ol>
   <p class=foot>No account. Nothing you read is stored &mdash; content expires on its own. Claude remembers only your reader code, so you pair once.</p>
-  <p class=foot>Reading on this device right now? <a href="${BASE}/new">Get a code</a> &mdash; some e-readers aren't auto-detected.</p>
+  <p class=foot>Want to read on this device instead &mdash; phone, tablet, or an e-reader that wasn't auto-detected? <a href="${BASE}/new">Get a code</a>.</p>
 </main>
 <span id=live role=status aria-live=polite class=sr></span>
 <script>
@@ -77,8 +77,8 @@ export function readerPage(code: string): string {
 <meta name=viewport content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
 <title>Reader ${code}</title>
 <style>
-  html,body{margin:0;padding:0;height:100%;background:#fff;color:#000;-webkit-text-size-adjust:100%}
-  body{font-family:Georgia,"Times New Roman",serif;width:100%} /* old Kindle WebKit misreports clientWidth without an explicit body width */
+  html,body{margin:0;padding:0;height:100%;background:#fff;color:#000;-webkit-text-size-adjust:100%;overscroll-behavior:none}
+  body{font-family:Georgia,"Times New Roman",serif;width:100%;touch-action:manipulation} /* old Kindle WebKit misreports clientWidth without an explicit body width; unknown props (overscroll/touch-action) it just ignores */
   a{color:#000;text-decoration:none}
   /* pairing */
   .pair{text-align:center;padding:54px 16px}
@@ -130,6 +130,24 @@ export function readerPage(code: string): string {
   /* always-on progress footer (Kindle-style), sits in the bottom page margin */
   #foot{position:absolute;left:0;right:0;bottom:0;height:36px;line-height:36px;text-align:center;
     color:#999;font-size:15px;background:#fff;display:none;z-index:5;pointer-events:none}
+  /* OLED/mobile night reading. E-ink never sees this: Kindle-era WebKit doesn't
+     know prefers-color-scheme, so the whole block evaluates false there. */
+  @media (prefers-color-scheme:dark){
+    html,body{background:#000;color:#ddd}
+    a{color:#ddd}
+    .pair .lead{color:#ccc}.pair .hint{color:#aaa}.pair .hint b{color:#fff}
+    #flow blockquote{border-left-color:#ddd}
+    #flow code{background:#222}
+    #flow hr{border-top-color:#ddd}
+    #flow th,#flow td{border-color:#ddd}
+    #flow th{background:#222}
+    #flow pre{background:#1a1a1a}
+    #flow span.mark{background:#fff;color:#000}
+    #flow .svgwrap svg{filter:invert(1)} /* diagrams are grayscale by design (e-ink), so a plain invert is exact */
+    #flow .choice{border-color:#ddd}
+    #selbar,#menu,#foot{background:#000;border-top-color:#ddd}
+    #selbar .sbtn,#menu .mbtn,#menu .qbtn{border-color:#ddd}
+  }
 </style></head><body>
 <div id=h class=pair>
   <p class=lead>Your reading code</p>
@@ -243,6 +261,7 @@ export function readerPage(code: string): string {
       if(tn==='a'||tn==='button') return true; } t=t.parentNode; } return false; }
 
   function onTap(e){
+    if(swiped){swiped=false;return;} // this click is the tail of a swipe, not a tap
     active();
     if(isBtn(e.target||e.srcElement)) return;
     if(menuOpen){ toggleMenu(false); return; }
@@ -486,6 +505,23 @@ export function readerPage(code: string): string {
   })(allA[k]); }
 
   pageEl.onclick=onTap;
+  // Swipe page-turns (phones/tablets). A ≥60px horizontal drag turns the page;
+  // browsers don't synthesize a click after a real drag, but the swiped flag suppresses
+  // one on any engine that does. Armed explain-mode and the menu keep tap-only
+  // semantics, so a swipe there does nothing.
+  var swX=null,swY=null,swiped=false;
+  if(pageEl.addEventListener){
+    pageEl.addEventListener('touchstart',function(e){
+      var t=e.touches&&e.touches[0]; swX=t?t.clientX:null; swY=t?t.clientY:null; swiped=false;
+    },false);
+    pageEl.addEventListener('touchend',function(e){
+      if(swX==null)return;
+      var t=e.changedTouches&&e.changedTouches[0]; if(!t)return;
+      var dx=t.clientX-swX, dy=t.clientY-swY; swX=null;
+      if(menuOpen||exMode)return;
+      if(Math.abs(dx)>60&&Math.abs(dy)<50){ swiped=true; active(); if(dx<0)next(); else prev(); }
+    },false);
+  }
   if(window.addEventListener){ window.addEventListener('resize',function(){
     var frac=(pages>1)?(page/(pages-1)):0; // rotation reflows the page count — hold the reading position like setFont does
     paginate();
