@@ -74,7 +74,7 @@ export function landingPage(): string {
 
 export function readerPage(code: string): string {
   return `<!doctype html><html lang=en><head><meta charset=utf-8>
-<meta name=viewport content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<meta name=viewport content="width=device-width,initial-scale=1">
 <title>Reader ${code}</title>
 <style>
   html,body{margin:0;padding:0;height:100%;background:#fff;color:#000;-webkit-text-size-adjust:100%;overscroll-behavior:none}
@@ -177,7 +177,7 @@ export function readerPage(code: string): string {
   <a href="#" id=sbsent class=sbtn>Sentence</a>
   <a href="#" id=sbcancel class=sbtn>Cancel</a>
 </div>
-<div id=foot></div>
+<div id=foot role=status aria-live=polite></div>
 <script>
 (function(){
   var code=${JSON.stringify(code)};

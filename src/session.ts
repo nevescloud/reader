@@ -22,6 +22,7 @@ type TapKind = "answer" | "quick" | "explain";
 type Target = { before: string; after: string; granularity: "word" | "sentence" | "block" };
 type Choice = { label: string; at: number; v: number; kind?: TapKind; target?: Target };
 type Read = { page: number; pages: number; at: number };
+type Waiter = { minV: number; resolve: (c: Choice | null) => void; timer: ReturnType<typeof setTimeout> };
 
 const kindOf = (c: Choice): TapKind => c.kind ?? (QUICK.indexOf(c.label) !== -1 ? "quick" : "answer");
 // Requests (quick, explain) survive a new send; only answer-taps go stale with their doc.
@@ -98,23 +99,59 @@ export class Session extends DurableObject {
     };
   }
 
-  // The reader taps a button/quick-action/explain-target → record it (last tap
-  // wins), scoped to the doc version it was tapped on, typed by kind (see TapKind).
+  // _api/await parks here; recordChoice resolves the waiter directly. The
+  // in-flight RPC keeps this instance pinned, so in-memory waiters can't be
+  // lost to hibernation — and the DO is single-threaded, so no lock needed.
+  private waiters: Waiter[] = [];
+
+  // The reader taps a button/quick-action/explain-target → deliver to a parked
+  // waiter if one exists, else record it (last tap wins), scoped to the doc
+  // version it was tapped on, typed by kind (see TapKind).
   async recordChoice(label: string, v = 0, kind?: TapKind, target?: Target): Promise<void> {
     const k: TapKind = kind ?? (QUICK.indexOf(label) !== -1 ? "quick" : "answer");
-    await this.ctx.storage.put("choice", { label, at: Date.now(), v, kind: k, target } satisfies Choice);
-    this.broadcast({ type: "tap", label, v, kind: k, target, at: Date.now() });
+    const c: Choice = { label, at: Date.now(), v, kind: k, target };
+    this.broadcast({ type: "tap", label, v, kind: k, target, at: c.at });
+    const w = this.waiters.shift();
+    if (w) {
+      clearTimeout(w.timer);
+      // Same staleness rule as takeChoice: an answer-tap from an older doc is
+      // consumed and dropped for this waiter (null re-arms the await loop).
+      const stale = k === "answer" && w.minV > 0 && v > 0 && v < w.minV;
+      w.resolve(stale ? null : c);
+      return; // delivered (or dropped-as-stale) — nothing left pending
+    }
+    await this.ctx.storage.put("choice", c);
   }
 
   // reader_await consumes the pending tap (so it isn't returned twice).
-  // minV scopes the wait to a specific doc version: a tap from an older doc is
-  // stale for that waiter — dropped, not delivered as the answer.
+  // minV scopes the wait to a specific doc version — but only for answer-taps:
+  // a stale answer is dropped, not delivered, while quick/explain taps are
+  // requests with no expiring question, valid whenever Claude looks (the same
+  // rule that lets them survive setDoc).
   async takeChoice(minV = 0): Promise<Choice | null> {
     const c = (await this.ctx.storage.get<Choice>("choice")) ?? null;
     if (!c) return null;
     await this.ctx.storage.delete("choice");
-    if (minV && c.v && c.v < minV) return null;
+    if (minV && c.v && c.v < minV && kindOf(c) === "answer") return null;
     return { ...c, kind: kindOf(c) };
+  }
+
+  // Blocking take: returns a pending tap immediately, else parks until
+  // recordChoice delivers one or timeoutMs elapses (null → caller re-arms).
+  async waitChoice(minV = 0, timeoutMs = 30_000): Promise<Choice | null> {
+    const pending = await this.takeChoice(minV);
+    if (pending) return pending;
+    return new Promise((resolve) => {
+      const w: Waiter = {
+        minV,
+        resolve,
+        timer: setTimeout(() => {
+          this.waiters = this.waiters.filter((x) => x !== w);
+          resolve(null);
+        }, timeoutMs),
+      };
+      this.waiters.push(w);
+    });
   }
 
   async status(): Promise<{

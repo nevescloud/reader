@@ -14,6 +14,8 @@ export const readerLink = (code: string) => `https://${APEX}${BASE}/${code}`;
 // base32 minus visually ambiguous chars (no I/L/O/U, no 0/1) — so a code read
 // off an e-ink screen has nothing to misread.
 const ALPHABET = "23456789ABCDEFGHJKMNPQRSTVWXYZ";
+const NON_ALPHABET = new RegExp(`[^${ALPHABET}]`, "g");
+const CODE = new RegExp(`^[${ALPHABET}]{5}$`);
 
 export function newCode(): string {
   const buf = new Uint8Array(5);
@@ -25,7 +27,14 @@ export function newCode(): string {
 
 // Forgiving on input: uppercase, drop anything not in the display alphabet.
 export function normCode(s: string): string {
-  return (s || "").toUpperCase().replace(/[^0-9A-Z]/g, "").slice(0, 8);
+  return (s || "").toUpperCase().replace(NON_ALPHABET, "").slice(0, 8);
+}
+
+// The one validity gate for every device-facing route: a real code is exactly 5
+// alphabet chars. Anything else (favicon probes, typos, scanner junk) must not
+// mint a Durable Object or a reader page.
+export function isCode(s: string): boolean {
+  return CODE.test(s);
 }
 
 // e-reader browsers we send straight to the reader; everything else sees the

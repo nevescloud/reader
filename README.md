@@ -59,6 +59,7 @@ first pairing.
 npm install
 npm run dev        # wrangler dev (local DOs, no CF auth needed)
 npm run typecheck
+npm test           # markdown renderer + code-alphabet invariants (vitest)
 # write API (set READER_TOKEN in .dev.vars, e.g. "dev"; fail-closed, always required):
 #   curl -H "Authorization: Bearer dev" -X POST localhost:8787/reader/_api/send \
 #     -d '{"code":"ABCDE","content":"# hi"}'
