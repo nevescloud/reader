@@ -187,7 +187,7 @@ export function readerPage(code: string): string {
   <p class=code>${code}</p>
   <p class=hint>In Claude, say:<br><b>&ldquo;send that to my reader, code ${code}&rdquo;</b></p>
   <p class=alt>&mdash; or just snap a photo of this screen and attach it to Claude. It reads the code and sends.</p>
-  <p class=alt>Bookmark this page &mdash; the code stays yours when you come back.</p>
+  <p class=alt>Bookmark this page &mdash; the same code comes back.</p>
   <p class=wait>Waiting&hellip; this page updates on its own.</p>
 </div>
 <div id=page><div id=flow></div></div>
