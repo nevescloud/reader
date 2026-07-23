@@ -15,12 +15,12 @@ const CONNECTED_MS = 45_000;
 // client pages loaded before kinds existed.
 const QUICK = ["↻ simpler", "→ more", "✎ explain"];
 
-type TapKind = "answer" | "quick" | "explain";
+export type TapKind = "answer" | "quick" | "explain";
 // Explain taps carry a quote locator, not context: the driving session authored
 // the doc, so quote + approximate before/after anchors are enough to find the
 // spot in its own copy. granularity says what the user designated.
-type Target = { before: string; after: string; granularity: "word" | "sentence" | "block" };
-type Choice = { label: string; at: number; v: number; kind?: TapKind; target?: Target };
+export type Target = { before: string; after: string; granularity: "word" | "sentence" | "block" };
+export type Choice = { label: string; at: number; v: number; kind?: TapKind; target?: Target };
 type Read = { page: number; pages: number; at: number };
 type Waiter = { minV: number; resolve: (c: Choice | null) => void; timer: ReturnType<typeof setTimeout> };
 

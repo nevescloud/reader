@@ -37,23 +37,30 @@ tell Claude. Polling (not WebSocket/SSE) is deliberate — e-ink repaints in ~1s
 and the device's WS/SSE are unreliable, so a 2.5s short-poll with full-document
 replace is the right granularity *and* the robust one.
 
-Why the tools live on the central server (not here): an anonymous MCP endpoint
-can't share an origin with the gateway's OAuth — the origin-wide OAuth discovery
-makes the anonymous endpoint look protected, and clients (claude.ai) then fail to
-connect. So the reader is exposed as a tool on the one OAuth server instead.
+## Two ways to drive it (same tools, different front doors)
+- **Anonymous, zero sign-in** — `reader.neves.cloud/mcp`, hosted right here
+  (`src/mcp.ts`). No OAuth anywhere on this origin, so no origin-wide discovery to
+  make an anonymous endpoint look protected — the bleed that blocks this on the
+  gateway simply isn't present on the reader's own host. The tools call the
+  Session DOs **in-process** (no binding, no token). The 5-char code is required
+  on every call (no accounts → nothing to hang a saved pairing on).
+- **OAuth'd, remembers your reader** — `mcp.neves.cloud/mcp`, in the gateway repo
+  (`../mcp`, `src/reader-tools.ts`). GitHub sign-in buys a saved pairing (`code`
+  optional after the first send) and a `pair_reader` tool. It reaches the write
+  API over a service binding at `/_api/*` with `Authorization: Bearer
+  ${READER_TOKEN}`.
+
+Both call the same core operations (`src/ops.ts`), so their append/render/
+delivery behavior can't drift.
 
 ## Pieces (one Worker, served at the origin root)
-- `src/index.ts` — router: `/_api/send|await|status` (write, `READER_TOKEN`) · `/s/<code>` poll · `/c/<code>` tap · `/w/<code>` WebSocket tap feed · `/<code>` reader · `/` entry (e-reader UA → sticky code).
+- `src/index.ts` — router: `/mcp` (anonymous MCP) · `/_api/send|await|status` (write, `READER_TOKEN`) · `/s/<code>` poll · `/c/<code>` tap · `/w/<code>` WebSocket tap feed · `/<code>` reader · `/` entry (e-reader UA → sticky code).
+- `src/ops.ts` — `sendDoc` / `awaitChoice` / `readStatus` on a Session DO; the single source shared by the HTTP write API and the in-process MCP tools.
+- `src/mcp.ts` — `ReaderMcp` (agents/McpAgent): anonymous Streamable-HTTP server exposing `send_to_reader` / `await_reader_choice` / `check_reader`.
 - `src/session.ts` — one Durable Object per code; holds the doc + a version the reader polls, the pending tap (typed answer/quick), an in-DO waiter that `_api/await` parks on, and hibernating feed sockets; self-deletes after 6h of mutual silence.
 - `src/md.ts` — markdown → clean reading HTML (same shape as the static `kindle` repo's `build.py`).
 - `src/pages.ts` — `landingPage` (setup; HIG over the web-conformance floor) + `readerPage` (e-ink serif, ES5-only inline script).
 - `src/util.ts` — `READER_HOST`, `isCode`, and the public-URL constants (single source).
-
-The MCP tools live in the gateway repo (`../mcp`, `src/reader-tools.ts` +
-`src/cuko-tools.ts`) and reach the write API over a service binding at `/_api/*`
-with `Authorization: Bearer ${READER_TOKEN}`. The gateway also remembers each
-signed-in user's last verified code, so tools work without a code after the
-first pairing.
 
 ## Develop
 ```sh
@@ -75,6 +82,8 @@ The gateway (`../mcp`) reaches the write API over a service binding at `/_api/*`
 redeploy it whenever that path or its reader-facing copy changes.
 
 ## Use it
-1. Add `https://mcp.neves.cloud/mcp` as a custom MCP server in Claude (GitHub sign-in).
+1. Add a custom MCP server in Claude — either `https://reader.neves.cloud/mcp`
+   (no sign-in; give the code each time) or `https://mcp.neves.cloud/mcp` (GitHub
+   sign-in; remembers your reader).
 2. Open `reader.neves.cloud` on the e-reader; note the 5-char code.
 3. Tell Claude: *"send that to my reader, code ABCDE."*

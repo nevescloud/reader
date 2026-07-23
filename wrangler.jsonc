@@ -22,12 +22,16 @@
 
   "durable_objects": {
     "bindings": [
-      { "name": "SESSION", "class_name": "Session" }
+      { "name": "SESSION", "class_name": "Session" },
+      // ReaderMcp (agents/McpAgent) holds one Streamable-HTTP MCP session; the
+      // anonymous /mcp endpoint serves through it and calls SESSION in-process.
+      { "name": "READER_MCP", "class_name": "ReaderMcp" }
     ]
   },
   "migrations": [
     { "tag": "v1", "new_sqlite_classes": ["Live", "Session"] },
-    { "tag": "v2", "deleted_classes": ["Live"] }
+    { "tag": "v2", "deleted_classes": ["Live"] },
+    { "tag": "v3", "new_sqlite_classes": ["ReaderMcp"] }
   ],
 
   "observability": { "enabled": true }

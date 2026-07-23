@@ -12,6 +12,7 @@ export const READER_HOST = "reader.neves.cloud"; // service origin (custom_domai
 export const MCP_URL = `https://${GATEWAY}/mcp`; // the connector added in Claude (OAuth, GitHub sign-in)
 export const READER_URL = READER_HOST; // the one thing typed on the e-reader
 export const readerLink = (code: string) => `https://${READER_HOST}/${code}`;
+export const tapFeedUrl = (code: string) => `wss://${READER_HOST}/w/${code}`;
 
 // base32 minus visually ambiguous chars (no I/L/O/U, no 0/1) — so a code read
 // off an e-ink screen has nothing to misread.
