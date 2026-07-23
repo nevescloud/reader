@@ -15,6 +15,7 @@ export function landingPage(): string {
   return `<!doctype html><html lang=en><head><meta charset=utf-8>
 <meta name=viewport content="width=device-width,initial-scale=1">
 <meta name=color-scheme content="light dark">
+<link rel=icon href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%93%96%3C/text%3E%3C/svg%3E">
 <title>Read it on your e-reader</title>
 <style>
   *{box-sizing:border-box}
@@ -22,6 +23,9 @@ export function landingPage(): string {
     font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",system-ui,sans-serif;
     padding:max(24px,env(safe-area-inset-top)) 24px 64px}
   main{max-width:36rem;margin:0 auto}
+  a{color:#0071e3;text-decoration:none}
+  a:hover{text-decoration:underline}
+  a:focus-visible{outline:3px solid #0071e3;outline-offset:2px;border-radius:4px}
   h1{font-size:2.2rem;line-height:1.08;letter-spacing:-.022em;font-weight:700;margin:3rem 0 .5rem}
   .sub{font-size:1.2rem;color:#6e6e73;margin:0 0 3rem}
   ol{list-style:none;padding:0;margin:0;display:grid;gap:2rem}
@@ -40,41 +44,49 @@ export function landingPage(): string {
   .cta:hover{background:#f5f5f7}
   .cta svg{width:22px;height:22px;flex:none}
   .or{color:#6e6e73;font-size:.95rem}
+  details{margin-top:1.1rem}
+  summary{color:#6e6e73;font-size:.95rem;cursor:pointer;padding:.7rem 0;width:fit-content}
+  summary::marker{color:#86868b}
+  summary:hover{color:inherit}
+  summary:focus-visible{outline:3px solid #0071e3;outline-offset:2px;border-radius:6px}
   .foot{margin-top:3rem;color:#86868b;font-size:.95rem}
   .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
   @media (prefers-color-scheme:dark){
     body{background:#000;color:#f5f5f7}.sub{color:#a1a1a6}
+    a{color:#0a84ff}
     .url code{background:#1c1c1e}.foot{color:#6e6e73}
     .cta{background:#1c1c1e;border-color:#3a3a3c}
     .cta:hover{background:#2c2c2e}
-    .or{color:#a1a1a6}
+    .or,summary{color:#a1a1a6}
   }
   @media (prefers-reduced-motion:reduce){*{transition:none!important}}
 </style></head><body>
 <main>
   <h1>Read it on your e-reader</h1>
-  <p class=sub>Send anything Claude writes &mdash; a long answer, a draft, a synthesis &mdash; straight to your Kindle or Kobo, and read it on e-ink instead of a screen.</p>
+  <p class=sub>Send anything Claude writes to your Kindle or Kobo &mdash; read it on e-ink, not a screen.</p>
   <ol>
     <li>
       <h2>1&nbsp;&middot;&nbsp;Connect Claude</h2>
-      <p>One click &mdash; opens Claude with this connector prefilled; review it and press <b>Add</b>:</p>
       <a class=cta href="${ADD_TO_CLAUDE_URL.replace(/&/g, "&amp;")}">${CLAUDE_SPARK}Add to Claude</a>
-      <p class=or>Or paste the address yourself (Claude &rarr; Settings &rarr; Connectors &rarr; Add custom connector):</p>
-      <div class=url><code id=u tabindex=0>${mcpUrl}</code><button class=copy data-copy=u type=button>Copy</button></div>
-      <p class=or>Or, in Claude Code:</p>
-      <div class=url><code id=cc tabindex=0>claude mcp add --transport http reader ${mcpUrl}</code><button class=copy data-copy=cc type=button>Copy</button></div>
+      <details>
+        <summary>Other ways to connect</summary>
+        <p class=or>Custom connector (Claude &rarr; Settings &rarr; Connectors):</p>
+        <div class=url><code id=u tabindex=0>${mcpUrl}</code><button class=copy data-copy=u type=button>Copy</button></div>
+        <p class=or>Claude Code:</p>
+        <div class=url><code id=cc tabindex=0>claude mcp add --transport http reader ${mcpUrl}</code><button class=copy data-copy=cc type=button>Copy</button></div>
+      </details>
     </li>
     <li>
       <h2>2&nbsp;&middot;&nbsp;Open this page on your e-reader</h2>
-      <p>In its web browser, go to <b>${READER_URL}</b>. A 5-character code appears on screen.</p>
+      <p>In its browser, go to <b>${READER_URL}</b> &mdash; a 5-character code appears.</p>
     </li>
     <li>
       <h2>3&nbsp;&middot;&nbsp;Tell Claude the code</h2>
-      <p>Say &ldquo;send that to my reader, code ABCDE.&rdquo; It appears in a couple of seconds, and updates live as Claude sends more.</p>
+      <p>Say &ldquo;send that to my reader, code ABCDE.&rdquo; It shows up in seconds and updates live.</p>
     </li>
   </ol>
-  <p class=foot>No account, no sign-in. Nothing you read is stored &mdash; content expires on its own. The code on your screen is the only key.</p>
-  <p class=foot>Want to read on this device instead &mdash; phone, tablet, or an e-reader that wasn't auto-detected? <a href="/new">Get a code</a>.</p>
+  <p class=foot>No account, nothing stored &mdash; content expires on its own. The code on the screen is the only key.</p>
+  <p class=foot>Reading on this device instead? <a href="/new">Get a code</a>.</p>
 </main>
 <span id=live role=status aria-live=polite class=sr></span>
 <script>
