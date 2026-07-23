@@ -44,7 +44,7 @@ export function landingPage(): string {
   <ol>
     <li>
       <h2>1&nbsp;&middot;&nbsp;Connect Claude</h2>
-      <p>Add this as a custom MCP server in your Claude app (one-time, sign in with GitHub):</p>
+      <p>Add this as a custom MCP server in your Claude app &mdash; no sign-in:</p>
       <div class=url><code id=u tabindex=0>${mcpUrl}</code><button id=c type=button>Copy</button></div>
     </li>
     <li>
@@ -56,7 +56,7 @@ export function landingPage(): string {
       <p>Say &ldquo;send that to my reader, code ABCDE.&rdquo; It appears in a couple of seconds, and updates live as Claude sends more.</p>
     </li>
   </ol>
-  <p class=foot>No account. Nothing you read is stored &mdash; content expires on its own. Claude remembers only your reader code, so you pair once.</p>
+  <p class=foot>No account, no sign-in. Nothing you read is stored &mdash; content expires on its own. The code on your screen is the only key.</p>
   <p class=foot>Want to read on this device instead &mdash; phone, tablet, or an e-reader that wasn't auto-detected? <a href="/new">Get a code</a>.</p>
 </main>
 <span id=live role=status aria-live=polite class=sr></span>

@@ -7,9 +7,8 @@
 // unguessable code IS the capability. The write path (/_api/*) is the protected
 // side — a shared-secret bearer, hit only by the reader_send tool on the OAuth'd
 // gateway (mcp.neves.cloud), which reaches us over a service binding.
-export const GATEWAY = "mcp.neves.cloud"; // OAuth MCP gateway; carries reader_send
 export const READER_HOST = "reader.neves.cloud"; // service origin (custom_domain)
-export const MCP_URL = `https://${GATEWAY}/mcp`; // the connector added in Claude (OAuth, GitHub sign-in)
+export const MCP_URL = `https://${READER_HOST}/mcp`; // the connector added in Claude — anonymous, no sign-in
 export const READER_URL = READER_HOST; // the one thing typed on the e-reader
 export const readerLink = (code: string) => `https://${READER_HOST}/${code}`;
 export const tapFeedUrl = (code: string) => `wss://${READER_HOST}/w/${code}`;
