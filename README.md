@@ -1,29 +1,34 @@
 # reader
 
 Send anything Claude writes to an e-reader (Kindle, Kobo, …) and read it on
-e-ink in real time. The **reader website** is **`neves.cloud/reader`** — a
-path-scoped Cloudflare Worker route that intercepts `/reader*` in front of the
-GitHub Pages org site that serves the rest of the apex. The MCP tools that drive
-it (`send_to_reader`, `await_reader_choice`, `check_reader`, `pair_reader`,
-`predict_then_reveal`) live on the OAuth'd **`mcp.neves.cloud/mcp`** server and
-reach this Worker's write API over a shared secret.
+e-ink in real time. The **reader website** is **`reader.neves.cloud`** — a
+Cloudflare Worker on its own subdomain (the nevescloud domain standard: a
+worker-backed service `<repo>` lives at `<repo>.neves.cloud`, so the repo name
+and the hostname are the same token). The historical mount **`neves.cloud/reader`**
+— a path-route intercepting `/reader*` in front of the GitHub Pages apex — stays
+live and additive, so paired devices and printed instructions keep working. The
+MCP tools that drive the reader (`send_to_reader`, `await_reader_choice`,
+`check_reader`, `pair_reader`, `predict_then_reveal`) live on the OAuth'd
+**`mcp.neves.cloud/mcp`** server and reach this Worker's write API over a
+service binding.
 
-Two surfaces, two audiences:
-- **public + anonymous** (`/reader`, `/reader/<code>`, `/reader/s`, `/reader/c`,
-  `/reader/w`): the reader page, its poll/tap, and a read-only WebSocket tap feed.
-  No sign-in — an e-reader can't OAuth, so the unguessable 5-char code *is* the
-  capability.
-- **write API** (`/reader/_api/*`): gated by the `READER_TOKEN` secret. Only the
-  MCP gateway holds it; it sets a reader's document. The reader's anonymous
-  origin is deliberately *separate* from the OAuth'd `mcp.neves.cloud`, so
-  there's no OAuth-discovery bleed onto it.
+Two surfaces, two audiences (paths shown at the subdomain root; the legacy apex
+mount prefixes each with `/reader`):
+- **public + anonymous** (`/`, `/<code>`, `/s`, `/c`, `/w`): the reader page, its
+  poll/tap, and a read-only WebSocket tap feed. No sign-in — an e-reader can't
+  OAuth, so the unguessable 5-char code *is* the capability.
+- **write API** (`/_api/*`): gated by the `READER_TOKEN` secret. Only the MCP
+  gateway holds it; it sets a reader's document. The reader's anonymous origin is
+  deliberately *separate* from the OAuth'd `mcp.neves.cloud`, so there's no
+  OAuth-discovery bleed onto it — which is also what keeps the door open to an
+  anonymous reader-native MCP endpoint at `reader.neves.cloud/mcp` later.
 
 ## How it works
 ```
 Claude (any client, incl. phone)               e-reader (~2012 WebKit, e-ink)
-   │  send_to_reader(code, markdown)               │  open neves.cloud/reader
+   │  send_to_reader(code, markdown)               │  open reader.neves.cloud
    ▼  (tool on mcp.neves.cloud, OAuth)            ▼  shows a 5-char code
-   gateway ──Bearer READER_TOKEN──▶ /reader/_api/send           polls /reader/s/<code> (2.5s→30s backoff)
+   gateway ─Bearer READER_TOKEN─▶ (binding) /reader/_api/send    polls /s/<code> (2.5s→30s backoff)
                                      │                              ▲  swaps in new HTML
                                      ▼                              │
                             ┌──────────────────────────┐           │
@@ -41,18 +46,19 @@ can't share an origin with the gateway's OAuth — the origin-wide OAuth discove
 makes the anonymous endpoint look protected, and clients (claude.ai) then fail to
 connect. So the reader is exposed as a tool on the one OAuth server instead.
 
-## Pieces (one Worker, all under `/reader`)
-- `src/index.ts` — router: `/_api/send|await|status` (write, `READER_TOKEN`) · `/s/<code>` poll · `/c/<code>` tap · `/w/<code>` WebSocket tap feed · `/reader`→`/reader/<code>` reader · `/reader` setup (e-reader UA → sticky code) · bare apex → `/reader`.
-- `src/session.ts` — one Durable Object per code; holds the doc + a version the reader polls, the pending tap (typed answer/quick), and hibernating feed sockets; self-deletes after 6h of mutual silence.
+## Pieces (one Worker; `base` is `""` on the subdomain, `/reader` on the apex mount)
+- `src/index.ts` — router: `base` is computed per request from the host (`baseFor`), then every route hangs off it: `/_api/send|await|status` (write, `READER_TOKEN`) · `/s/<code>` poll · `/c/<code>` tap · `/w/<code>` WebSocket tap feed · `/<code>` reader · entry (e-reader UA → sticky code).
+- `src/session.ts` — one Durable Object per code; holds the doc + a version the reader polls, the pending tap (typed answer/quick), an in-DO waiter that `_api/await` parks on, and hibernating feed sockets; self-deletes after 6h of mutual silence.
 - `src/md.ts` — markdown → clean reading HTML (same shape as the static `kindle` repo's `build.py`).
-- `src/pages.ts` — `landingPage` (setup; HIG over the web-conformance floor) + `readerPage` (e-ink serif, ES5-only inline script).
-- `src/util.ts` — `BASE`, `APEX`, and the public-URL constants (single source).
+- `src/pages.ts` — `landingPage(base)` (setup; HIG over the web-conformance floor) + `readerPage(code, base)` (e-ink serif, ES5-only inline script).
+- `src/util.ts` — `READER_HOST`, `baseFor`, `isCode`, and the public-URL constants (single source).
 
 The MCP tools live in the gateway repo (`../mcp`, `src/reader-tools.ts` +
-`src/cuko-tools.ts`) and reach `/reader/_api/*` with
-`Authorization: Bearer ${READER_TOKEN}`. The gateway also remembers each
-signed-in user's last verified code, so tools work without a code after the
-first pairing.
+`src/cuko-tools.ts`) and reach the write API over a service binding at
+`/reader/_api/*` (binding host → `base` `/reader`, so the subdomain move needs
+no gateway change) with `Authorization: Bearer ${READER_TOKEN}`. The gateway also
+remembers each signed-in user's last verified code, so tools work without a code
+after the first pairing.
 
 ## Develop
 ```sh
@@ -68,11 +74,13 @@ npm test           # markdown renderer + code-alphabet invariants (vitest)
 ## Deploy
 ```sh
 wrangler secret put READER_TOKEN   # one-time: the shared secret the gateway tool sends
-npm run deploy                   # binds the neves.cloud/reader* route, in front of Pages
-cd ../mcp && npm run deploy      # gateway (holds the same READER_TOKEN)
+npm run deploy                   # binds reader.neves.cloud (custom_domain, DNS auto-provisioned)
+                                 # + the legacy neves.cloud/reader* route, in front of Pages
 ```
+The gateway (`../mcp`) reaches the write API over a service binding and needs no
+change for the subdomain move; redeploy it only when its own code changes.
 
 ## Use it
 1. Add `https://mcp.neves.cloud/mcp` as a custom MCP server in Claude (GitHub sign-in).
-2. Open `neves.cloud/reader` on the e-reader; note the 5-char code.
+2. Open `reader.neves.cloud` on the e-reader; note the 5-char code.
 3. Tell Claude: *"send that to my reader, code ABCDE."*

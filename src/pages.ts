@@ -4,9 +4,11 @@
 //   readerPage  — the e-reader's ~2012 WebKit. e-ink serif, paginated (not scrolled),
 //                 ES5-only inline script (var / XHR / string-concat, -webkit- prefixes,
 //                 px math from innerWidth/innerHeight — no flex/grid/vh/vw).
-import { BASE, MCP_URL, READER_URL } from "./util";
+import { MCP_URL, READER_URL } from "./util";
 
-export function landingPage(): string {
+// base is the origin's mount ("" on the canonical subdomain, "/reader" on the
+// legacy apex route) — every self-referential link is built from it.
+export function landingPage(base: string): string {
   const mcpUrl = MCP_URL;
   return `<!doctype html><html lang=en><head><meta charset=utf-8>
 <meta name=viewport content="width=device-width,initial-scale=1">
@@ -57,7 +59,7 @@ export function landingPage(): string {
     </li>
   </ol>
   <p class=foot>No account. Nothing you read is stored &mdash; content expires on its own. Claude remembers only your reader code, so you pair once.</p>
-  <p class=foot>Want to read on this device instead &mdash; phone, tablet, or an e-reader that wasn't auto-detected? <a href="${BASE}/new">Get a code</a>.</p>
+  <p class=foot>Want to read on this device instead &mdash; phone, tablet, or an e-reader that wasn't auto-detected? <a href="${base}/new">Get a code</a>.</p>
 </main>
 <span id=live role=status aria-live=polite class=sr></span>
 <script>
@@ -72,7 +74,7 @@ export function landingPage(): string {
 </body></html>`;
 }
 
-export function readerPage(code: string): string {
+export function readerPage(code: string, base: string): string {
   return `<!doctype html><html lang=en><head><meta charset=utf-8>
 <meta name=viewport content="width=device-width,initial-scale=1">
 <title>Reader ${code}</title>
@@ -181,7 +183,7 @@ export function readerPage(code: string): string {
 <script>
 (function(){
   var code=${JSON.stringify(code)};
-  var base=${JSON.stringify(BASE)};
+  var base=${JSON.stringify(base)};
   var PAD=36, VPAD=46;
   var v=0, page=0, pages=1, menuOpen=false, lastHtml='';
   var fontPx=27; // localStorage can be disabled outright on e-readers — a throw here killed the whole script

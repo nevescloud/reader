@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { newCode, normCode, isCode, isEreader } from "../src/util";
+import { newCode, normCode, isCode, isEreader, baseFor, readerLink, READER_URL } from "../src/util";
 
 const ALPHABET = "23456789ABCDEFGHJKMNPQRSTVWXYZ";
 
@@ -26,6 +26,19 @@ describe("codes", () => {
     expect(isCode("ABCDO")).toBe(false); // O excluded from the alphabet
     expect(isCode("FAVICONI")).toBe(false); // the junk-path shape that minted DOs
     expect(isCode("")).toBe(false);
+  });
+});
+
+describe("domain standard", () => {
+  it("subdomain serves at root; every other host stays under /reader", () => {
+    expect(baseFor("reader.neves.cloud")).toBe("");
+    expect(baseFor("neves.cloud")).toBe("/reader"); // legacy apex path-route
+    expect(baseFor("reader.internal")).toBe("/reader"); // gateway service binding
+  });
+
+  it("canonical URLs point at the subdomain", () => {
+    expect(READER_URL).toBe("reader.neves.cloud");
+    expect(readerLink("ABCDE")).toBe("https://reader.neves.cloud/ABCDE");
   });
 });
 
