@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { newCode, normCode, isCode, isEreader, baseFor, readerLink, READER_URL } from "../src/util";
+import { newCode, normCode, isCode, isEreader, readerLink, READER_URL } from "../src/util";
 
 const ALPHABET = "23456789ABCDEFGHJKMNPQRSTVWXYZ";
 
@@ -30,12 +30,6 @@ describe("codes", () => {
 });
 
 describe("domain standard", () => {
-  it("subdomain serves at root; every other host stays under /reader", () => {
-    expect(baseFor("reader.neves.cloud")).toBe("");
-    expect(baseFor("neves.cloud")).toBe("/reader"); // legacy apex path-route
-    expect(baseFor("reader.internal")).toBe("/reader"); // gateway service binding
-  });
-
   it("canonical URLs point at the subdomain", () => {
     expect(READER_URL).toBe("reader.neves.cloud");
     expect(readerLink("ABCDE")).toBe("https://reader.neves.cloud/ABCDE");

@@ -1,12 +1,10 @@
 {
-  // Reader website, canonical at reader.neves.cloud (custom_domain, served at
-  // root); grandfathered at neves.cloud/reader (apex path-route in front of the
-  // GitHub Pages site) so paired devices and printed instructions keep working.
-  // Public surface (the reader page, /s poll, /c tap, /w feed) is anonymous — an
-  // e-reader can't OAuth, so the unguessable code is the capability. The write
-  // path /_api/* is gated by the READER_TOKEN secret (wrangler secret put). The
-  // reader_send tool that holds the secret lives on the mcp.neves.cloud gateway
-  // (OAuth) and reaches us over a service binding at /reader/_api/*.
+  // Reader website at reader.neves.cloud (custom_domain, served at root). Public
+  // surface (the reader page, /s poll, /c tap, /w feed) is anonymous — an e-reader
+  // can't OAuth, so the unguessable code is the capability. The write path /_api/*
+  // is gated by the READER_TOKEN secret (wrangler secret put). The reader_send
+  // tool that holds the secret lives on the mcp.neves.cloud gateway (OAuth) and
+  // reaches us over a service binding at /_api/*.
   //   Session — one per reader code; holds the current doc {v, html, title}, TTL alarm
   "name": "reader",
   "main": "src/index.ts",
@@ -15,15 +13,11 @@
 
   // Domain standard: this service owns its subdomain reader.neves.cloud via
   // custom_domain (wrangler provisions the proxied DNS record + cert on deploy).
-  // That's the canonical origin, served at root. The apex path-route
-  // neves.cloud/reader* stays as a grandfathered additive mount — it intercepts
-  // only /reader*, so the rest of the Pages apex is untouched (custom_domain on
-  // the *apex* would seize the whole hostname and break Pages; on a subdomain it
-  // only claims that subdomain). No workers.dev URL needed.
+  // custom_domain claims only that subdomain — the GitHub Pages apex is untouched.
+  // No workers.dev URL needed.
   "workers_dev": false,
   "routes": [
-    { "pattern": "reader.neves.cloud", "custom_domain": true },
-    { "pattern": "neves.cloud/reader*", "zone_name": "neves.cloud" }
+    { "pattern": "reader.neves.cloud", "custom_domain": true }
   ],
 
   "durable_objects": {

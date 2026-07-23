@@ -6,9 +6,7 @@
 //                 px math from innerWidth/innerHeight — no flex/grid/vh/vw).
 import { MCP_URL, READER_URL } from "./util";
 
-// base is the origin's mount ("" on the canonical subdomain, "/reader" on the
-// legacy apex route) — every self-referential link is built from it.
-export function landingPage(base: string): string {
+export function landingPage(): string {
   const mcpUrl = MCP_URL;
   return `<!doctype html><html lang=en><head><meta charset=utf-8>
 <meta name=viewport content="width=device-width,initial-scale=1">
@@ -59,7 +57,7 @@ export function landingPage(base: string): string {
     </li>
   </ol>
   <p class=foot>No account. Nothing you read is stored &mdash; content expires on its own. Claude remembers only your reader code, so you pair once.</p>
-  <p class=foot>Want to read on this device instead &mdash; phone, tablet, or an e-reader that wasn't auto-detected? <a href="${base}/new">Get a code</a>.</p>
+  <p class=foot>Want to read on this device instead &mdash; phone, tablet, or an e-reader that wasn't auto-detected? <a href="/new">Get a code</a>.</p>
 </main>
 <span id=live role=status aria-live=polite class=sr></span>
 <script>
@@ -74,7 +72,7 @@ export function landingPage(base: string): string {
 </body></html>`;
 }
 
-export function readerPage(code: string, base: string): string {
+export function readerPage(code: string): string {
   return `<!doctype html><html lang=en><head><meta charset=utf-8>
 <meta name=viewport content="width=device-width,initial-scale=1">
 <title>Reader ${code}</title>
@@ -183,7 +181,6 @@ export function readerPage(code: string, base: string): string {
 <script>
 (function(){
   var code=${JSON.stringify(code)};
-  var base=${JSON.stringify(base)};
   var PAD=36, VPAD=46;
   var v=0, page=0, pages=1, menuOpen=false, lastHtml='';
   var fontPx=27; // localStorage can be disabled outright on e-readers — a throw here killed the whole script
@@ -285,7 +282,7 @@ export function readerPage(code: string, base: string): string {
   function tap(label,onFail,kind,extra){
     active(); // a tap means an answer is coming — poll fast for it
     var x=new XMLHttpRequest();
-    x.open('GET',base+'/c/'+code+'?x=1&v='+v+'&k='+(kind||'a')+'&q='+encodeURIComponent(label)+(extra||''),true);
+    x.open('GET','/c/'+code+'?x=1&v='+v+'&k='+(kind||'a')+'&q='+encodeURIComponent(label)+(extra||''),true);
     x.onreadystatechange=function(){
       if(x.readyState===4){
         if(x.status>=200&&x.status<300){
@@ -546,7 +543,7 @@ export function readerPage(code: string, base: string): string {
     function again(){ if(settled)return; settled=true; schedule(pollDelay()); }
     // watchdog: a hung XHR (flaky e-reader wifi) used to stop polling forever
     var dog=setTimeout(function(){ try{x.abort();}catch(e){} again(); },20000);
-    x.open('GET',base+'/s/'+code+'?v='+v+'&p='+page+'&n='+pages,true); // p/n: reading-position heartbeat
+    x.open('GET','/s/'+code+'?v='+v+'&p='+page+'&n='+pages,true); // p/n: reading-position heartbeat
     x.onreadystatechange=function(){
       if(x.readyState===4){
         clearTimeout(dog);

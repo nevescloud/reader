@@ -29,7 +29,7 @@ const kindOf = (c: Choice): TapKind => c.kind ?? (QUICK.indexOf(c.label) !== -1 
 const isRequest = (c: Choice): boolean => kindOf(c) !== "answer";
 
 export class Session extends DurableObject {
-  // Tap feed: /reader/w/<code> upgrades here. Each recorded tap goes out as one
+  // Tap feed: /w/<code> upgrades here. Each recorded tap goes out as one
   // frame, so a harness-side watcher (e.g. Claude Code's Monitor ws mode) can
   // wake on a tap instead of polling. Read-only — same capability model as the
   // content poll: holding the code is holding the feed. Hibernation API keeps

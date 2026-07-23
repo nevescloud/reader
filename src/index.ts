@@ -1,7 +1,7 @@
 import { Session } from "./session";
 import { landingPage, readerPage } from "./pages";
 import { render } from "./md";
-import { baseFor, newCode, normCode, isCode, isEreader } from "./util";
+import { newCode, normCode, isCode, isEreader } from "./util";
 
 export { Session };
 
@@ -20,10 +20,10 @@ function json(body: unknown, status = 200): Response {
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-// The reader surface is public+anonymous, but this Worker is publicly routed, so
-// the write API can't lean on "no public route" — it gates on READER_TOKEN.
-// Only the reader_send tool on the OAuth'd gateway holds the secret. Fail closed:
-// unset secret => every write is rejected. For dev, set READER_TOKEN in `.dev.vars`.
+// The reader surface is public+anonymous, so the write API can't lean on "no
+// public route" — it gates on READER_TOKEN. Only the reader_send tool on the
+// OAuth'd gateway holds the secret. Fail closed: unset secret => every write is
+// rejected. For dev, set READER_TOKEN in `.dev.vars`.
 function authed(req: Request, env: Env): boolean {
   return !!env.READER_TOKEN && req.headers.get("authorization") === `Bearer ${env.READER_TOKEN}`;
 }
@@ -32,12 +32,10 @@ export default {
   async fetch(req: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(req.url);
     const p = url.pathname;
-    // The mount depends on where we were reached: "" on the canonical subdomain,
-    // "/reader" on the legacy apex route and the gateway's service binding.
-    const base = baseFor(url.hostname);
 
-    // --- internal write API: shared-secret bearer (see authed()). ---
-    if (p === `${base}/_api/send` && req.method === "POST") {
+    // --- internal write API: shared-secret bearer (see authed()). Reached by the
+    // gateway over a service binding; also publicly at /_api/* (token-gated). ---
+    if (p === "/_api/send" && req.method === "POST") {
       if (!authed(req, env)) return json({ error: "unauthorized" }, 401);
       const { code, content, title, choices, mode } = (await req.json().catch(() => ({}))) as {
         code?: string; content?: string; title?: string; choices?: string[]; mode?: string;
@@ -75,7 +73,7 @@ export default {
     // from an older doc must not answer a newer question); quick/explain taps
     // are requests, never version-stale. Chunked ≤30s per RPC so a DO restart
     // mid-wait costs one re-arm, not the whole timeout.
-    if (p === `${base}/_api/await`) {
+    if (p === "/_api/await") {
       if (!authed(req, env)) return json({ error: "unauthorized" }, 401);
       const c = normCode(url.searchParams.get("code") || "");
       if (!isCode(c)) return json({ error: "bad code" }, 400);
@@ -92,7 +90,7 @@ export default {
       return json({ timeout: true });
     }
     // Pairing probe: is a reader currently polling this code? (check_reader)
-    if (p === `${base}/_api/status`) {
+    if (p === "/_api/status") {
       if (!authed(req, env)) return json({ error: "unauthorized" }, 401);
       const c = normCode(url.searchParams.get("code") || "");
       if (!isCode(c)) return json({ error: "bad code" }, 400);
@@ -101,8 +99,8 @@ export default {
     }
 
     // --- public tap target: the reader records a choice/quick-action/explain here. ---
-    if (p.startsWith(`${base}/c/`)) {
-      const c = normCode(decodeURIComponent(p.slice(`${base}/c/`.length)));
+    if (p.startsWith("/c/")) {
+      const c = normCode(decodeURIComponent(p.slice("/c/".length)));
       const tapV = parseInt(url.searchParams.get("v") || "0", 10) || 0;
       // k=q|a|e types the tap on the wire; absent (pages loaded pre-kind) the DO
       // falls back to matching the label against the known quick-action set.
@@ -122,12 +120,12 @@ export default {
       if (isCode(c) && label) await env.SESSION.get(env.SESSION.idFromName(c)).recordChoice(label, tapV, kind, target);
       // x=1 => XHR (stay on the page); otherwise a plain link tap => back to reader.
       if (url.searchParams.get("x") === "1") return new Response(null, { status: 204, headers: { "cache-control": "no-store" } });
-      return Response.redirect(`${url.origin}${base}/${c}`, 302);
+      return Response.redirect(`${url.origin}/${c}`, 302);
     }
 
     // --- reader poll (doubles as the reading-position heartbeat via p/n). ---
-    if (p.startsWith(`${base}/s/`)) {
-      const code = normCode(decodeURIComponent(p.slice(`${base}/s/`.length)));
+    if (p.startsWith("/s/")) {
+      const code = normCode(decodeURIComponent(p.slice("/s/".length)));
       if (!isCode(code)) return new Response("bad code", { status: 400 });
       const since = parseInt(url.searchParams.get("v") || "0", 10) || 0;
       const page = parseInt(url.searchParams.get("p") || "0", 10) || 0;
@@ -141,8 +139,8 @@ export default {
     // --- tap feed: one WS frame per tap, for event-driven callers (e.g. a
     // Claude Code Monitor holding the socket — tap wakes the model with no
     // polling). Read-only; keyed on the code like every device-facing route. ---
-    if (p.startsWith(`${base}/w/`)) {
-      const c = normCode(decodeURIComponent(p.slice(`${base}/w/`.length)));
+    if (p.startsWith("/w/")) {
+      const c = normCode(decodeURIComponent(p.slice("/w/".length)));
       if (!isCode(c)) return new Response("bad code", { status: 400 });
       if ((req.headers.get("upgrade") || "").toLowerCase() !== "websocket") {
         return new Response("expected websocket", { status: 426 });
@@ -152,43 +150,31 @@ export default {
 
     // A device revisiting the bare entry used to mint a fresh code every time,
     // orphaning the code Claude had remembered. The last code rides a cookie so
-    // the bookmark / retyped-URL path is sticky; /new opts out. Cookie is scoped
-    // to this origin's mount — subdomain and legacy apex keep independent pairings.
+    // the bookmark / retyped-URL path is sticky; /new opts out.
     const cookieCode = normCode((req.headers.get("cookie") || "").match(/(?:^|;\s*)lr=([^;]+)/)?.[1] || "");
     const stick = (code: string, to: Response): Response => {
       const r = new Response(to.body, to);
-      r.headers.append("set-cookie", `lr=${code}; Path=${base || "/"}; Max-Age=172800; SameSite=Lax; Secure; HttpOnly`);
+      r.headers.append("set-cookie", `lr=${code}; Path=/; Max-Age=172800; SameSite=Lax; Secure; HttpOnly`);
       return r;
     };
 
     // --- /new: always a fresh code (pairing-page link + escape hatch). ---
-    if (p === `${base}/new`) {
+    if (p === "/new") {
       const code = newCode();
-      return stick(code, Response.redirect(`${url.origin}${base}/${code}`, 302));
+      return stick(code, Response.redirect(`${url.origin}/${code}`, 302));
     }
-    // --- the entry (subdomain root or /reader): setup page; an e-reader landing
-    // here gets its sticky code, else a fresh one. ---
-    if (p === base || p === `${base}/`) {
+    // --- / : setup page; an e-reader landing here gets its sticky code, else a fresh one. ---
+    if (p === "/" || p === "") {
       if (isEreader(req.headers.get("user-agent") || "")) {
         const code = isCode(cookieCode) ? cookieCode : newCode();
-        return stick(code, Response.redirect(`${url.origin}${base}/${code}`, 302));
+        return stick(code, Response.redirect(`${url.origin}/${code}`, 302));
       }
-      return html(landingPage(base));
+      return html(landingPage());
     }
     // --- /<code>: the reader page. Anything that isn't a valid code (favicon
     // probes, typos) 404s — it must not get a page, cookie, or DO. ---
-    if (p.startsWith(`${base}/`)) {
-      const code = normCode(decodeURIComponent(p.slice(`${base}/`.length)));
-      if (!isCode(code)) return new Response("not found", { status: 404 });
-      return stick(code, html(readerPage(code, base)));
-    }
-
-    // --- bare apex on the legacy route => the reader entry. (Unreached in prod:
-    // the /reader* route never matches "/"; kept for `wrangler dev`.) ---
-    if (p === "/" || p === "") {
-      return Response.redirect(`${url.origin}${base}`, 302);
-    }
-
-    return new Response("not found", { status: 404 });
+    const code = normCode(decodeURIComponent(p.slice(1)));
+    if (!isCode(code)) return new Response("not found", { status: 404 });
+    return stick(code, html(readerPage(code)));
   },
 };
