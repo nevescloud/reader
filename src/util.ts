@@ -10,6 +10,11 @@
 export const READER_HOST = "reader.neves.cloud"; // service origin (custom_domain)
 export const MCP_URL = `https://${READER_HOST}/mcp`; // the connector added in Claude — anonymous, no sign-in
 export const READER_URL = READER_HOST; // the one thing typed on the e-reader
+// One-tap install: opens claude.ai with the Add-custom-connector dialog prefilled
+// (name + URL); the user reviews and presses Add. The query params are shipped but
+// ahead of the help-center docs (verified live 2026-07-22) — the landing page keeps
+// a manual copy-paste row as the fallback if they ever change.
+export const ADD_TO_CLAUDE_URL = `https://claude.ai/customize/connectors?modal=add-custom-connector&connectorName=Reader&connectorUrl=${encodeURIComponent(MCP_URL)}`;
 export const readerLink = (code: string) => `https://${READER_HOST}/${code}`;
 export const tapFeedUrl = (code: string) => `wss://${READER_HOST}/w/${code}`;
 

@@ -82,7 +82,11 @@ The gateway (`../mcp`) reaches the write API over a service binding at `/_api/*`
 redeploy it whenever that path or its reader-facing copy changes.
 
 ## Use it
-1. Add a custom MCP server in Claude — either `https://reader.neves.cloud/mcp`
+1. Connect Claude. One-tap: the landing page's **Add to Claude** button opens
+   claude.ai with the connector dialog prefilled
+   (`claude.ai/customize/connectors?modal=add-custom-connector&connectorName=…&connectorUrl=…`
+   — shipped but undocumented params, so the page keeps a copy-paste fallback).
+   Or add a custom connector manually — either `https://reader.neves.cloud/mcp`
    (no sign-in; give the code each time) or `https://mcp.neves.cloud/mcp` (GitHub
    sign-in; remembers your reader).
 2. Open `reader.neves.cloud` on the e-reader; note the 5-char code.

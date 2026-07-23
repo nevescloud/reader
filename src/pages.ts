@@ -4,7 +4,11 @@
 //   readerPage  — the e-reader's ~2012 WebKit. e-ink serif, paginated (not scrolled),
 //                 ES5-only inline script (var / XHR / string-concat, -webkit- prefixes,
 //                 px math from innerWidth/innerHeight — no flex/grid/vh/vw).
-import { MCP_URL, READER_URL } from "./util";
+import { ADD_TO_CLAUDE_URL, MCP_URL, READER_URL } from "./util";
+
+// Official Claude spark (Simple Icons path, brand coral) — decorative next to the
+// "Add to Claude" label, so aria-hidden.
+const CLAUDE_SPARK = `<svg aria-hidden=true focusable=false fill="#D97757" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="m4.7144 15.9555 4.7174-2.6471.079-.2307-.079-.1275h-.2307l-.7893-.0486-2.6956-.0729-2.3375-.0971-2.2646-.1214-.5707-.1215-.5343-.7042.0546-.3522.4797-.3218.686.0608 1.5179.1032 2.2767.1578 1.6514.0972 2.4468.255h.3886l.0546-.1579-.1336-.0971-.1032-.0972L6.973 9.8356l-2.55-1.6879-1.3356-.9714-.7225-.4918-.3643-.4614-.1578-1.0078.6557-.7225.8803.0607.2246.0607.8925.686 1.9064 1.4754 2.4893 1.8336.3643.3035.1457-.1032.0182-.0728-.164-.2733-1.3539-2.4467-1.445-2.4893-.6435-1.032-.17-.6194c-.0607-.255-.1032-.4674-.1032-.7285L6.287.1335 6.6997 0l.9957.1336.419.3642.6192 1.4147 1.0018 2.2282 1.5543 3.0296.4553.8985.2429.8318.091.255h.1579v-.1457l.1275-1.706.2368-2.0947.2307-2.6957.0789-.7589.3764-.9107.7468-.4918.5828.2793.4797.686-.0668.4433-.2853 1.8517-.5586 2.9021-.3643 1.9429h.2125l.2429-.2429.9835-1.3053 1.6514-2.0643.7286-.8196.85-.9046.5464-.4311h1.0321l.759 1.1293-.34 1.1657-1.0625 1.3478-.8804 1.1414-1.2628 1.7-.7893 1.36.0729.1093.1882-.0183 2.8535-.607 1.5421-.2794 1.8396-.3157.8318.3886.091.3946-.3278.8075-1.967.4857-2.3072.4614-3.4364.8136-.0425.0304.0486.0607 1.5482.1457.6618.0364h1.621l3.0175.2247.7892.522.4736.6376-.079.4857-1.2142.6193-1.6393-.3886-3.825-.9107-1.3113-.3279h-.1822v.1093l1.0929 1.0686 2.0035 1.8092 2.5075 2.3314.1275.5768-.3218.4554-.34-.0486-2.2039-1.6575-.85-.7468-1.9246-1.621h-.1275v.17l.4432.6496 2.3436 3.5214.1214 1.0807-.17.3521-.6071.2125-.6679-.1214-1.3721-1.9246L14.38 17.959l-1.1414-1.9428-.1397.079-.674 7.2552-.3156.3703-.7286.2793-.6071-.4614-.3218-.7468.3218-1.4753.3886-1.9246.3157-1.53.2853-1.9004.17-.6314-.0121-.0425-.1397.0182-1.4328 1.9672-2.1796 2.9446-1.7243 1.8456-.4128.164-.7164-.3704.0667-.6618.4008-.5889 2.386-3.0357 1.4389-1.882.929-1.0868-.0062-.1579h-.0546l-6.3385 4.1164-1.1293.1457-.4857-.4554.0608-.7467.2307-.2429 1.9064-1.3114Z"/></svg>`;
 
 export function landingPage(): string {
   const mcpUrl = MCP_URL;
@@ -29,12 +33,21 @@ export function landingPage(): string {
   button{min-height:44px;min-width:44px;padding:0 1.1rem;font-size:1rem;font-weight:600;color:#fff;
     background:#0071e3;border:0;border-radius:12px;cursor:pointer;-webkit-appearance:none;white-space:nowrap}
   button:hover{background:#0077ed}
-  button:focus-visible,code:focus-visible{outline:3px solid #0071e3;outline-offset:2px}
+  button:focus-visible,code:focus-visible,.cta:focus-visible{outline:3px solid #0071e3;outline-offset:2px}
+  .cta{display:inline-flex;align-items:center;gap:.6rem;min-height:48px;padding:.6rem 1.4rem;margin:.75rem 0 .25rem;
+    border:1px solid #d2d2d7;border-radius:12px;background:#fff;color:inherit;text-decoration:none;
+    font-size:1.05rem;font-weight:600}
+  .cta:hover{background:#f5f5f7}
+  .cta svg{width:22px;height:22px;flex:none}
+  .or{color:#6e6e73;font-size:.95rem}
   .foot{margin-top:3rem;color:#86868b;font-size:.95rem}
   .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
   @media (prefers-color-scheme:dark){
     body{background:#000;color:#f5f5f7}.sub{color:#a1a1a6}
     .url code{background:#1c1c1e}.foot{color:#6e6e73}
+    .cta{background:#1c1c1e;border-color:#3a3a3c}
+    .cta:hover{background:#2c2c2e}
+    .or{color:#a1a1a6}
   }
   @media (prefers-reduced-motion:reduce){*{transition:none!important}}
 </style></head><body>
@@ -44,8 +57,12 @@ export function landingPage(): string {
   <ol>
     <li>
       <h2>1&nbsp;&middot;&nbsp;Connect Claude</h2>
-      <p>Add this as a custom MCP server in your Claude app &mdash; no sign-in:</p>
-      <div class=url><code id=u tabindex=0>${mcpUrl}</code><button id=c type=button>Copy</button></div>
+      <p>One click &mdash; opens Claude with this connector prefilled; review it and press <b>Add</b>:</p>
+      <a class=cta href="${ADD_TO_CLAUDE_URL.replace(/&/g, "&amp;")}">${CLAUDE_SPARK}Add to Claude</a>
+      <p class=or>Or paste the address yourself (Claude &rarr; Settings &rarr; Connectors &rarr; Add custom connector):</p>
+      <div class=url><code id=u tabindex=0>${mcpUrl}</code><button class=copy data-copy=u type=button>Copy</button></div>
+      <p class=or>Or, in Claude Code:</p>
+      <div class=url><code id=cc tabindex=0>claude mcp add --transport http reader ${mcpUrl}</code><button class=copy data-copy=cc type=button>Copy</button></div>
     </li>
     <li>
       <h2>2&nbsp;&middot;&nbsp;Open this page on your e-reader</h2>
@@ -61,13 +78,17 @@ export function landingPage(): string {
 </main>
 <span id=live role=status aria-live=polite class=sr></span>
 <script>
-  var b=document.getElementById('c'),u=document.getElementById('u'),live=document.getElementById('live');
-  b.addEventListener('click',function(){
-    var done=function(){b.textContent='Copied';live.textContent='Address copied to clipboard';
-      setTimeout(function(){b.textContent='Copy';},1600);};
-    if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(u.textContent).then(done,done);}
-    else{var r=document.createRange();r.selectNodeContents(u);var s=getSelection();s.removeAllRanges();s.addRange(r);try{document.execCommand('copy');}catch(e){}done();}
-  });
+  var live=document.getElementById('live');
+  var copies=document.querySelectorAll('.copy');
+  for(var i=0;i<copies.length;i++)(function(b){
+    var u=document.getElementById(b.getAttribute('data-copy'));
+    b.addEventListener('click',function(){
+      var done=function(){b.textContent='Copied';live.textContent='Copied to clipboard';
+        setTimeout(function(){b.textContent='Copy';},1600);};
+      if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(u.textContent).then(done,done);}
+      else{var r=document.createRange();r.selectNodeContents(u);var s=getSelection();s.removeAllRanges();s.addRange(r);try{document.execCommand('copy');}catch(e){}done();}
+    });
+  })(copies[i]);
 </script>
 </body></html>`;
 }
