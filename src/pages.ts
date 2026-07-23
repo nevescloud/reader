@@ -183,8 +183,10 @@ export function readerPage(code: string): string {
   var code=${JSON.stringify(code)};
   var PAD=36, VPAD=46;
   var v=0, page=0, pages=1, menuOpen=false, lastHtml='';
-  var fontPx=27; // localStorage can be disabled outright on e-readers — a throw here killed the whole script
-  try{fontPx=parseInt(localStorage.getItem('lr_font'),10)||27;}catch(e){}
+  // 21px Georgia ≈ book-body size on e-ink; the old 27 default read as large-print.
+  // Per-device A−/A+ (persisted in lr_font) tunes from here; 18–46 clamp.
+  var fontPx=21; // localStorage can be disabled outright on e-readers — a throw here killed the whole script
+  try{fontPx=parseInt(localStorage.getItem('lr_font'),10)||21;}catch(e){}
   if(fontPx<18)fontPx=18; if(fontPx>46)fontPx=46;
   var lastActive=+new Date();
   function active(){lastActive=+new Date();}
