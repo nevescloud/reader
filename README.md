@@ -1,5 +1,7 @@
 # reader
 
+[![Add to Claude](https://img.shields.io/badge/Add_to-Claude-D97757?logo=claude&logoColor=white)](https://claude.ai/customize/connectors?modal=add-custom-connector&connectorName=Reader&connectorUrl=https%3A%2F%2Freader.neves.cloud%2Fmcp)
+
 Send anything Claude writes to an e-reader (Kindle, Kobo, …) and read it on
 e-ink in real time. The **reader website** is **`reader.neves.cloud`** — a
 Cloudflare Worker on its own subdomain (the nevescloud domain standard: a
