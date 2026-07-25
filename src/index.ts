@@ -169,6 +169,8 @@ export default {
     // probes, typos) 404s — it must not get a page, cookie, or DO. ---
     const code = normCode(decodeURIComponent(p.slice(1)));
     if (!isCode(code)) return new Response("not found", { status: 404 });
-    return stick(code, html(readerPage(code)));
+    // The UA picks the dark palette: e-ink gets a two-ink one (greys are dither
+    // patterns there — see pages.ts). Light is identical either way.
+    return stick(code, html(readerPage(code, isEreader(req.headers.get("user-agent") || ""))));
   },
 };

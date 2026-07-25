@@ -140,8 +140,11 @@ export function landingPage(): string {
 </body></html>`;
 }
 
-export function readerPage(code: string): string {
-  return `<!doctype html><html lang=en><head><meta charset=utf-8>
+// eink: the UA is an e-reader (isEreader, same test that routes / to a code).
+// It only selects a dark palette — see the [data-eink].dark block. Carried as an
+// attribute, not a class, because the theme script owns className outright.
+export function readerPage(code: string, eink = false): string {
+  return `<!doctype html><html lang=en${eink ? " data-eink" : ""}><head><meta charset=utf-8>
 <meta name=viewport content="width=device-width,initial-scale=1">
 <title>Reader ${code}</title>
 <style>
@@ -218,6 +221,27 @@ export function readerPage(code: string): string {
   .dark #flow .choice{border-color:#ddd}
   .dark #selbar,.dark #menu,.dark #foot{background:#000;border-top-color:#ddd}
   .dark #selbar .sbtn,.dark #menu .mbtn,.dark #menu .qbtn{border-color:#ddd}
+  /* Dark on e-ink is a different problem from dark on a screen. E-ink has no
+     true greys — every intermediate value is a DITHER PATTERN, so #ddd body text
+     is drawn as a halftone at glyph size, which is what reads as low quality.
+     It compounds: dithered content needs the panel's slow multi-level waveform
+     and ghosts harder under the browser's partial refresh. So an e-ink device
+     gets two inks and nothing between — pure white on pure black, rules instead
+     of grey fills. Screens keep the palette above; #fff on #000 is harsh on OLED,
+     which is what the soft greys were for. */
+  [data-eink].dark,[data-eink].dark body,[data-eink].dark a,
+  [data-eink].dark .pair .lead,[data-eink].dark .pair .hint,
+  [data-eink].dark .pair .alt,[data-eink].dark .pair .wait,
+  [data-eink].dark #selbar .spreview,[data-eink].dark #menu .pageind,
+  [data-eink].dark #menu .mhint,[data-eink].dark #foot{color:#fff}
+  [data-eink].dark #flow code,[data-eink].dark #flow pre,[data-eink].dark #flow th{background:#000}
+  /* a grey fill can't separate these any more, so give them an edge instead */
+  [data-eink].dark #flow code,[data-eink].dark #flow pre{border:1px solid #fff}
+  [data-eink].dark #flow blockquote{border-left-color:#fff}
+  [data-eink].dark #flow th,[data-eink].dark #flow td,[data-eink].dark #flow hr,
+  [data-eink].dark #flow .choice,[data-eink].dark #selbar,[data-eink].dark #menu,
+  [data-eink].dark #foot,[data-eink].dark #selbar .sbtn,
+  [data-eink].dark #menu .mbtn,[data-eink].dark #menu .qbtn{border-color:#fff}
 </style>
 <script>
   /* Before first paint, so a pinned theme never flashes the other one. Stored
