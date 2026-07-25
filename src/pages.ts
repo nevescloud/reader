@@ -51,16 +51,31 @@ export function landingPage(): string {
   summary:focus-visible{outline:3px solid #0071e3;outline-offset:2px;border-radius:6px}
   .foot{margin-top:3rem;color:#86868b;font-size:.95rem}
   .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
-  @media (prefers-color-scheme:dark){
-    body{background:#000;color:#f5f5f7}.sub{color:#a1a1a6}
-    a{color:#0a84ff}
-    .url code{background:#1c1c1e}.foot{color:#6e6e73}
-    .cta{background:#1c1c1e;border-color:#3a3a3c}
-    .cta:hover{background:#2c2c2e}
-    .or,summary{color:#a1a1a6}
-  }
+  button.theme{background:transparent;color:#86868b;border:1px solid #d2d2d7;font-weight:500;padding:0 1rem}
+  button.theme:hover{background:#f5f5f7;color:inherit}
+  /* Class, not the media query itself: the OS preference is the default, and the
+     footer button has to be able to override it in both directions (resolved by
+     the head script before first paint). */
+  .dark body{background:#000;color:#f5f5f7}.dark .sub{color:#a1a1a6}
+  .dark a{color:#0a84ff}
+  .dark .url code{background:#1c1c1e}.dark .foot{color:#6e6e73}
+  /* color:inherit restated: .dark a outranks .cta's own inherit, which the bare
+     element rule it replaced did not — the CTA label would go link-blue in dark. */
+  .dark .cta{background:#1c1c1e;border-color:#3a3a3c;color:inherit}
+  .dark .cta:hover{background:#2c2c2e}
+  .dark .or,.dark summary{color:#a1a1a6}
+  .dark button.theme{border-color:#3a3a3c;color:#a1a1a6}
+  .dark button.theme:hover{background:#1c1c1e}
   @media (prefers-reduced-motion:reduce){*{transition:none!important}}
-</style></head><body>
+</style>
+<script>
+  /* Shares lr_theme with the reader page, so a choice made while reading holds
+     here too. Runs before first paint — a pinned theme never flashes the other. */
+  (function(){var t;try{t=localStorage.getItem('lr_theme');}catch(e){}
+    if(t!=='light'&&t!=='dark')t=(window.matchMedia&&matchMedia('(prefers-color-scheme:dark)').matches)?'dark':'light';
+    document.documentElement.className=t;
+    document.documentElement.style.colorScheme=t;})();
+</script></head><body>
 <main>
   <h1>Read it on your e-reader</h1>
   <p class=sub>Send anything Claude writes to your Kindle or Kobo &mdash; read it on e-ink, not a screen.</p>
@@ -87,9 +102,29 @@ export function landingPage(): string {
   </ol>
   <p class=foot>No account, nothing stored &mdash; content expires on its own. The code on the screen is the only key.</p>
   <p class=foot>Reading on this device instead? <a href="/new">Get a code</a>.</p>
+  <p class=foot><button class=theme id=theme type=button></button></p>
 </main>
 <span id=live role=status aria-live=polite class=sr></span>
 <script>
+  // The label names the destination, not the current state — a toggle reading
+  // "Dark" that means "you are in dark" is the classic ambiguity. Painting it is
+  // separate from persisting it: labelling on load must not pin a theme that was
+  // still following the OS.
+  var themeBtn=document.getElementById('theme');
+  function paintTheme(){
+    var to=document.documentElement.className==='dark'?'light':'dark';
+    themeBtn.textContent=(to==='dark'?'☾':'☀')+'  '+to.charAt(0).toUpperCase()+to.slice(1);
+    themeBtn.setAttribute('aria-label','Switch to '+to+' theme');
+  }
+  paintTheme();
+  themeBtn.addEventListener('click',function(){
+    var t=document.documentElement.className==='dark'?'light':'dark';
+    document.documentElement.className=t;
+    document.documentElement.style.colorScheme=t;
+    try{localStorage.setItem('lr_theme',t);}catch(e){}
+    paintTheme();
+  });
+
   var live=document.getElementById('live');
   var copies=document.querySelectorAll('.copy');
   for(var i=0;i<copies.length;i++)(function(b){
@@ -163,25 +198,35 @@ export function readerPage(code: string): string {
   /* always-on progress footer (Kindle-style), sits in the bottom page margin */
   #foot{position:absolute;left:0;right:0;bottom:0;height:36px;line-height:36px;text-align:center;
     color:#999;font-size:15px;background:#fff;display:none;z-index:5;pointer-events:none}
-  /* OLED/mobile night reading. E-ink never sees this: Kindle-era WebKit doesn't
-     know prefers-color-scheme, so the whole block evaluates false there. */
-  @media (prefers-color-scheme:dark){
-    html,body{background:#000;color:#ddd}
-    a{color:#ddd}
-    .pair .lead{color:#ccc}.pair .hint{color:#aaa}.pair .hint b{color:#fff}
-    #flow blockquote{border-left-color:#ddd}
-    #flow code{background:#222}
-    #flow hr{border-top-color:#ddd}
-    #flow th,#flow td{border-color:#ddd}
-    #flow th{background:#222}
-    #flow pre{background:#1a1a1a}
-    #flow span.mark{background:#fff;color:#000}
-    #flow .svgwrap svg{filter:invert(1)} /* diagrams are grayscale by design (e-ink), so a plain invert is exact */
-    #flow .choice{border-color:#ddd}
-    #selbar,#menu,#foot{background:#000;border-top-color:#ddd}
-    #selbar .sbtn,#menu .mbtn,#menu .qbtn{border-color:#ddd}
-  }
-</style></head><body>
+  /* OLED/mobile night reading. Keyed on a class, not the media query directly:
+     the OS preference is only the DEFAULT, and the ☾/☀ menu button pins a choice
+     (lr_theme) that has to be able to override it in both directions. The head
+     script below resolves the two into html.dark|light before first paint.
+     E-ink lands on light unless the reader picks otherwise — Kindle-era WebKit
+     has no matchMedia, so there's no OS preference to inherit. */
+  .dark,.dark body{background:#000;color:#ddd}
+  .dark a{color:#ddd}
+  .dark .pair .lead{color:#ccc}.dark .pair .hint{color:#aaa}.dark .pair .hint b{color:#fff}
+  .dark #flow blockquote{border-left-color:#ddd}
+  .dark #flow code{background:#222}
+  .dark #flow hr{border-top-color:#ddd}
+  .dark #flow th,.dark #flow td{border-color:#ddd}
+  .dark #flow th{background:#222}
+  .dark #flow pre{background:#1a1a1a}
+  .dark #flow span.mark{background:#fff;color:#000}
+  .dark #flow .svgwrap svg{filter:invert(1)} /* diagrams are grayscale by design (e-ink), so a plain invert is exact */
+  .dark #flow .choice{border-color:#ddd}
+  .dark #selbar,.dark #menu,.dark #foot{background:#000;border-top-color:#ddd}
+  .dark #selbar .sbtn,.dark #menu .mbtn,.dark #menu .qbtn{border-color:#ddd}
+</style>
+<script>
+  /* Before first paint, so a pinned theme never flashes the other one. Stored
+     choice wins; with none, follow the OS; with neither (e-ink), light. */
+  (function(){var t;try{t=localStorage.getItem('lr_theme');}catch(e){}
+    if(t!=='light'&&t!=='dark')t=(window.matchMedia&&matchMedia('(prefers-color-scheme:dark)').matches)?'dark':'light';
+    document.documentElement.className=t;
+    try{document.documentElement.style.colorScheme=t;}catch(e){}})();
+</script></head><body>
 <div id=h class=pair>
   <p class=lead>Your reading code</p>
   <p class=code>${code}</p>
@@ -195,6 +240,7 @@ export function readerPage(code: string): string {
   <div class=mrow>
     <a href="#" id=fminus class=mbtn>A&minus;</a>
     <a href="#" id=fplus class=mbtn>A+</a>
+    <a href="#" id=theme class=mbtn aria-label="Switch to dark theme" title="Switch to dark theme">&#9790;</a>
     <span id=pageind class=pageind></span>
   </div>
   <div class=mrow>
@@ -524,6 +570,27 @@ export function readerPage(code: string): string {
       setTimeout(showPage,9000); // any page turn restores the label sooner
     }
   }
+
+  // Theme: the head script already resolved stored-choice-or-OS into a class;
+  // this only labels the button and pins an explicit choice when tapped. The
+  // glyph names the DESTINATION (☾ = go dark), so the label is never a riddle
+  // about which state you're in. Painting it is kept apart from persisting it —
+  // syncing the glyph on load must not silently pin what was still "follow the OS".
+  var themeBtn=document.getElementById('theme');
+  function isDark(){ return document.documentElement.className==='dark'; }
+  function paintTheme(){
+    var to=isDark()?'light':'dark';
+    themeBtn.innerHTML=isDark()?'&#9728;':'&#9790;';
+    themeBtn.setAttribute('aria-label','Switch to '+to+' theme');
+    themeBtn.setAttribute('title','Switch to '+to+' theme');
+  }
+  paintTheme();
+  themeBtn.onclick=function(e){ if(e&&e.preventDefault)e.preventDefault();
+    var t=isDark()?'light':'dark';
+    document.documentElement.className=t;
+    try{document.documentElement.style.colorScheme=t;}catch(e2){}
+    try{localStorage.setItem('lr_theme',t);}catch(e2){}
+    paintTheme(); return false; };
 
   document.getElementById('fminus').onclick=function(e){if(e&&e.preventDefault)e.preventDefault();setFont(-2);return false;};
   document.getElementById('fplus').onclick=function(e){if(e&&e.preventDefault)e.preventDefault();setFont(2);return false;};
