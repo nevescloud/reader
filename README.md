@@ -7,9 +7,10 @@ e-ink in real time. The **reader website** is **`reader.neves.cloud`** — a
 Cloudflare Worker on its own subdomain (the nevescloud domain standard: a
 worker-backed service `<repo>` lives at `<repo>.neves.cloud`, so the repo name
 and the hostname are the same token). The MCP tools that drive the reader
-(`send_to_reader`, `await_reader_choice`, `check_reader`, `pair_reader`,
-`predict_then_reveal`) live on the OAuth'd **`mcp.neves.cloud/mcp`** server and
-reach this Worker's write API over a service binding.
+(`send_to_reader`, `await_reader_choice`, `check_reader`, `send_drill`,
+`await_drill_report`, `resume_drill`, `pair_reader`, `predict_then_reveal`) live
+on the OAuth'd **`mcp.neves.cloud/mcp`** server and reach this Worker's write API
+over a service binding.
 
 Two surfaces, two audiences:
 - **public + anonymous** (`/`, `/<code>`, `/s`, `/c`, `/w`): the reader page, its
@@ -55,11 +56,33 @@ replace is the right granularity *and* the robust one.
 Both call the same core operations (`src/ops.ts`), so their append/render/
 delivery behavior can't drift.
 
+## Deck mode: fixed drills run in the DO, not through the model
+A multiple-choice drill with an answer key is a deterministic loop, and running
+it screen-by-screen through the agent costs two round-trips per item (an 18-item
+drill ≈ 36) for work a state machine does. `send_drill` hands the **whole deck**
+to the Session DO — question, choices, answer index, optional feedback, plus a
+policy (`requeue_until_correct`, `shuffle`). From there the DO scores each tap,
+renders the feedback screen and turns the page itself; **pages advance at poll
+speed, with no model in the loop.** `await_drill_report` returns per-item
+results at the end (what they tapped, first-try correctness, retries, seconds).
+
+Its edges stay open. A quick action (↻ simpler / → more / ✎ explain) is the one
+tap that genuinely needs a model: it **parks** the drill and surfaces as a normal
+pending tap. Reply with `mode:"append"` and the next answer-tap resumes on its
+own; `resume_drill` re-renders the question when you need a clean screen. A
+`mode:"replace"` send ends the drill — that's also how you cancel one.
+
+The boundary is deliberate: deck mode is only for a deck authored up front with
+closed-form answers. Teaching, discussion, partial credit and adaptive
+re-explaining stay on `send_to_reader` / `await_reader_choice`. The invoking
+agent picks the mode.
+
 ## Pieces (one Worker, served at the origin root)
-- `src/index.ts` — router: `/mcp` (anonymous MCP) · `/_api/send|await|status` (write, `READER_TOKEN`) · `/s/<code>` poll · `/c/<code>` tap · `/w/<code>` WebSocket tap feed · `/<code>` reader · `/` entry (e-reader UA → sticky code).
-- `src/ops.ts` — `sendDoc` / `awaitChoice` / `readStatus` on a Session DO; the single source shared by the HTTP write API and the in-process MCP tools.
-- `src/mcp.ts` — `ReaderMcp` (agents/McpAgent): anonymous Streamable-HTTP server exposing `send_to_reader` / `await_reader_choice` / `check_reader`.
-- `src/session.ts` — one Durable Object per code; holds the doc + a version the reader polls, the pending tap (typed answer/quick), an in-DO waiter that `_api/await` parks on, and hibernating feed sockets; self-deletes after 6h of mutual silence.
+- `src/index.ts` — router: `/mcp` (anonymous MCP) · `/_api/send|await|status`, `/_api/drill[/report|/resume]` (write, `READER_TOKEN`) · `/s/<code>` poll · `/c/<code>` tap · `/w/<code>` WebSocket tap feed · `/<code>` reader · `/` entry (e-reader UA → sticky code).
+- `src/ops.ts` — `sendDoc` / `awaitChoice` / `readStatus` / `startDrill` / `awaitDrillReport` / `resumeDrill` on a Session DO; the single source shared by the HTTP write API and the in-process MCP tools.
+- `src/mcp.ts` — `ReaderMcp` (agents/McpAgent): anonymous Streamable-HTTP server exposing `send_to_reader` / `await_reader_choice` / `check_reader` / `send_drill` / `await_drill_report` / `resume_drill`.
+- `src/drill.ts` — deck mode's rules, pure: deck validation, the tap→next-state transition, the three screens (question / feedback / summary), the report. No storage, no rendering — so the machine is testable without a DO harness.
+- `src/session.ts` — one Durable Object per code; holds the doc + a version the reader polls, the pending tap (typed answer/quick), an in-DO waiter that `_api/await` parks on, drill state + its report waiter, and hibernating feed sockets; self-deletes after 6h of mutual silence.
 - `src/md.ts` — markdown → clean reading HTML (same shape as the static `kindle` repo's `build.py`).
 - `src/pages.ts` — `landingPage` (setup; HIG over the web-conformance floor) + `readerPage` (e-ink serif, ES5-only inline script).
 - `src/util.ts` — `READER_HOST`, `isCode`, and the public-URL constants (single source).
@@ -69,7 +92,7 @@ delivery behavior can't drift.
 npm install
 npm run dev        # wrangler dev (local DOs, no CF auth needed)
 npm run typecheck
-npm test           # markdown renderer + code-alphabet invariants (vitest)
+npm test           # markdown renderer + code-alphabet invariants + the drill machine (vitest)
 # write API (set READER_TOKEN in .dev.vars, e.g. "dev"; fail-closed, always required):
 #   curl -H "Authorization: Bearer dev" -X POST localhost:8787/_api/send \
 #     -d '{"code":"ABCDE","content":"# hi"}'

@@ -1,4 +1,9 @@
 import { DurableObject } from "cloudflare:workers";
+import { render } from "./md";
+import {
+  applyTap, buildReport, parseDeck, progressOf, screenFor, staleTap, startState, suspend,
+  type DrillReport, type DrillState,
+} from "./drill";
 
 // One instance per reader code. Holds the current document + a monotonic version
 // the reader polls against, plus a pending tap (the user's choice) that the
@@ -23,6 +28,11 @@ export type Target = { before: string; after: string; granularity: "word" | "sen
 export type Choice = { label: string; at: number; v: number; kind?: TapKind; target?: Target };
 type Read = { page: number; pages: number; at: number };
 type Waiter = { minV: number; resolve: (c: Choice | null) => void; timer: ReturnType<typeof setTimeout> };
+type ReportWaiter = { resolve: (r: DrillReport | null) => void; timer: ReturnType<typeof setTimeout> };
+export type Progress = ReturnType<typeof progressOf>;
+// Either the finished report, or how far the running deck has got (an await that
+// timed out). Absent entirely — null — means no drill and no report.
+export type DrillWait = { report?: DrillReport; progress?: Progress };
 
 const kindOf = (c: Choice): TapKind => c.kind ?? (QUICK.indexOf(c.label) !== -1 ? "quick" : "answer");
 // Requests (quick, explain) survive a new send; only answer-taps go stale with their doc.
@@ -62,13 +72,26 @@ export class Session extends DurableObject {
   // choices: button labels rendered under the doc. Writing a doc clears a
   // pending answer-tap so a new prompt starts fresh (quick taps survive).
   // md: the markdown source, kept so appends can re-render the whole doc.
-  async setDoc(html: string, title: string, choices: string[] = [], md = ""): Promise<number> {
+  private async putDoc(html: string, title: string, choices: string[], md: string): Promise<number> {
     const v = ((await this.ctx.storage.get<number>("v")) ?? 0) + 1;
     await this.ctx.storage.put({ v, html, title, choices, md, updatedAt: Date.now() });
     const c = await this.ctx.storage.get<Choice>("choice");
     if (c && !isRequest(c)) await this.ctx.storage.delete("choice");
     await this.ctx.storage.setAlarm(Date.now() + TTL_MS);
     return v;
+  }
+
+  // The agent-facing write. An explicit replace supersedes deck mode — the
+  // drill's screen is gone, so the drill is too, and whoever is parked on its
+  // report gets it back marked cancelled instead of hanging. Append leaves a
+  // drill running: that's the path an explanation takes to land under a parked
+  // question (see suspend()).
+  async setDoc(html: string, title: string, choices: string[] = [], md = "", mode: "replace" | "append" = "replace"): Promise<number> {
+    if (mode === "replace") {
+      const s = await this.drillState();
+      if (s) await this.finishDrill(s, true);
+    }
+    return this.putDoc(html, title, choices, md);
   }
 
   async getMd(): Promise<{ md: string; title: string; choices: string[] }> {
@@ -109,6 +132,17 @@ export class Session extends DurableObject {
   // version it was tapped on, typed by kind (see TapKind).
   async recordChoice(label: string, v = 0, kind?: TapKind, target?: Target): Promise<void> {
     const k: TapKind = kind ?? (QUICK.indexOf(label) !== -1 ? "quick" : "answer");
+
+    // Deck mode intercepts answer-taps: the DO scores them, turns the page and
+    // never surfaces them — no agent in the loop (drill.ts). Quick/explain taps
+    // park the drill and fall through, because those are the taps that genuinely
+    // need a model.
+    const drill = await this.drillState();
+    if (drill && drill.phase !== "done") {
+      if (k === "answer") return this.answerDrill(drill, label, v);
+      await this.ctx.storage.put("drill", suspend(drill, label, k, Date.now()));
+    }
+
     const c: Choice = { label, at: Date.now(), v, kind: k, target };
     this.broadcast({ type: "tap", label, v, kind: k, target, at: c.at });
     const w = this.waiters.shift();
@@ -154,14 +188,105 @@ export class Session extends DurableObject {
     });
   }
 
+  // ---- deck mode ----------------------------------------------------------
+  // The rules live in drill.ts (pure); this owns storage, rendering, delivery.
+  private reportWaiters: ReportWaiter[] = [];
+
+  private async drillState(): Promise<DrillState | null> {
+    return (await this.ctx.storage.get<DrillState>("drill")) ?? null;
+  }
+
+  // Put one drill screen on the device. Bumps v like any other send, and stamps
+  // that version onto the state: the next tap must be at least this new, or it's
+  // a second tap on the screen we just replaced (staleTap).
+  private async showDrill(s: DrillState): Promise<number> {
+    const now = Date.now();
+    const scr = screenFor(s, now);
+    const { title, html } = render(scr.md, scr.title);
+    const v = await this.putDoc(html, title, scr.choices, scr.md);
+    await this.ctx.storage.put("drill", { ...s, screenV: v });
+    return v;
+  }
+
+  private async finishDrill(s: DrillState, cancelled = false): Promise<DrillReport> {
+    const report = buildReport(s, Date.now(), cancelled);
+    await this.ctx.storage.put("drillReport", report);
+    await this.ctx.storage.delete("drill");
+    this.broadcast({ type: "drill_done", title: report.title, first_try: report.first_try, total: report.total, cancelled, at: Date.now() });
+    for (const w of this.reportWaiters.splice(0)) { clearTimeout(w.timer); w.resolve(report); }
+    return report;
+  }
+
+  private async answerDrill(s: DrillState, label: string, v: number): Promise<void> {
+    if (staleTap(s, v)) return; // duplicate tap on an already-answered screen
+    const next = applyTap(s, label, Date.now());
+    // Typed apart from "tap" on purpose: a harness watching the feed for taps
+    // must not be woken once per drill item — that's the cost deck mode removes.
+    // Watch for "drill_done" instead.
+    this.broadcast({
+      type: "drill", event: "answer", label, correct: !!next.last?.correct,
+      done: next.done.filter(Boolean).length, total: next.items.length, at: Date.now(),
+    });
+    await this.showDrill(next);
+    if (next.phase === "done") await this.finishDrill(next);
+  }
+
+  async startDrill(deck: unknown): Promise<{ v: number; title: string; total: number } | { error: string }> {
+    const d = parseDeck(deck);
+    if ("error" in d) return d;
+    const prev = await this.drillState();
+    if (prev) await this.finishDrill(prev, true); // a new deck supersedes the old one
+    await this.ctx.storage.delete("drillReport");
+    const v = await this.showDrill(startState(d, Date.now()));
+    return { v, title: d.title, total: d.items.length };
+  }
+
+  // Re-render the current screen after the agent has answered a parked request.
+  // Only needed when that reply used mode "replace" (which ends the drill) or the
+  // user never tapped again — an answer-tap auto-resumes on its own.
+  async resumeDrill(): Promise<{ v: number; progress: Progress } | { error: string }> {
+    const s = await this.drillState();
+    if (!s || s.phase === "done") return { error: "no drill is running" };
+    const next: DrillState = { ...s, suspended: false };
+    const v = await this.showDrill(next);
+    return { v, progress: progressOf(next) };
+  }
+
+  // Blocking take on the report: the finished one if it's already in, else park
+  // until the deck clears or timeoutMs elapses (then hand back progress so the
+  // caller can re-arm). null means no drill and no report — nothing to wait for.
+  async waitReport(timeoutMs = 30_000): Promise<DrillWait | null> {
+    const now = async (): Promise<DrillWait | null> => {
+      const rep = await this.ctx.storage.get<DrillReport>("drillReport");
+      if (rep) return { report: rep };
+      const s = await this.drillState();
+      return s ? { progress: progressOf(s) } : null;
+    };
+    const seen = await now();
+    if (!seen || seen.report) return seen;
+    const r = await new Promise<DrillReport | null>((resolve) => {
+      const w: ReportWaiter = {
+        resolve,
+        timer: setTimeout(() => {
+          this.reportWaiters = this.reportWaiters.filter((x) => x !== w);
+          resolve(null);
+        }, timeoutMs),
+      };
+      this.reportWaiters.push(w);
+    });
+    return r ? { report: r } : await now();
+  }
+
   async status(): Promise<{
     v: number; title: string; connected: boolean; lastSeenS: number | null;
     reading: Read | null; pending: string | null; pendingKind: TapKind | null;
+    drill: Progress | null;
   }> {
     const v = (await this.ctx.storage.get<number>("v")) ?? 0;
     const lastPoll = (await this.ctx.storage.get<number>("lastPoll")) ?? 0;
     const read = (await this.ctx.storage.get<Read>("read")) ?? null;
     const pending = (await this.ctx.storage.get<Choice>("choice")) ?? null;
+    const drill = await this.drillState();
     return {
       v,
       title: (await this.ctx.storage.get<string>("title")) ?? "",
@@ -170,6 +295,7 @@ export class Session extends DurableObject {
       reading: read,
       pending: pending?.label ?? null,
       pendingKind: pending ? kindOf(pending) : null,
+      drill: drill ? progressOf(drill) : null,
     };
   }
 

@@ -1,7 +1,7 @@
 import { Session } from "./session";
 import { ReaderMcp } from "./mcp";
 import { landingPage, readerPage } from "./pages";
-import { sendDoc, awaitChoice, readStatus } from "./ops";
+import { sendDoc, awaitChoice, readStatus, startDrill, awaitDrillReport, resumeDrill } from "./ops";
 import { newCode, normCode, isCode, isEreader } from "./util";
 
 export { Session, ReaderMcp };
@@ -68,7 +68,28 @@ export default {
       if (!authed(req, env)) return json({ error: "unauthorized" }, 401);
       const s = await readStatus(env, url.searchParams.get("code") || "");
       if ("error" in s) return json({ error: s.error }, 400);
-      return json({ code: s.code, connected: s.connected, v: s.v, title: s.title, lastSeenS: s.lastSeenS, reading: s.reading, pending: s.pending, pendingKind: s.pendingKind });
+      return json({ code: s.code, connected: s.connected, v: s.v, title: s.title, lastSeenS: s.lastSeenS, reading: s.reading, pending: s.pending, pendingKind: s.pendingKind, drill: s.drill });
+    }
+
+    // --- deck mode: hand over a whole drill, then collect the report. ---
+    if (p === "/_api/drill" && req.method === "POST") {
+      if (!authed(req, env)) return json({ error: "unauthorized" }, 401);
+      const body = (await req.json().catch(() => ({}))) as { code?: string };
+      const d = await startDrill(env, body.code || "", body);
+      return "error" in d ? json({ error: d.error }, 400) : json(d);
+    }
+    if (p === "/_api/drill/report") {
+      if (!authed(req, env)) return json({ error: "unauthorized" }, 401);
+      const ms = Math.min(Math.max(parseInt(url.searchParams.get("timeout") || "45", 10) || 45, 5), 55) * 1000;
+      const r = await awaitDrillReport(env, url.searchParams.get("code") || "", ms);
+      if (r && "error" in r) return json({ error: r.error }, 400);
+      return json(r ?? { none: true });
+    }
+    if (p === "/_api/drill/resume" && req.method === "POST") {
+      if (!authed(req, env)) return json({ error: "unauthorized" }, 401);
+      const body = (await req.json().catch(() => ({}))) as { code?: string };
+      const r = await resumeDrill(env, body.code || "");
+      return "error" in r ? json({ error: r.error }, 400) : json(r);
     }
 
     // --- public tap target: the reader records a choice/quick-action/explain here. ---

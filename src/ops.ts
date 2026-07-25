@@ -6,7 +6,7 @@
 //     on env.SESSION — no binding, no token.
 import { render } from "./md";
 import { normCode, isCode } from "./util";
-import type { Choice, TapKind } from "./session";
+import type { Choice, DrillWait, Progress, TapKind } from "./session";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -17,7 +17,7 @@ export type Delivery = {
 };
 export type Status = {
   code: string; v: number; title: string; connected: boolean; lastSeenS: number | null;
-  reading: Reading; pending: string | null; pendingKind: TapKind | null;
+  reading: Reading; pending: string | null; pendingKind: TapKind | null; drill: Progress | null;
 };
 
 export type SendParams = { code?: string; content?: string; title?: string; choices?: string[]; mode?: string };
@@ -43,7 +43,7 @@ export async function sendDoc(env: Env, p: SendParams): Promise<Delivery | { err
     if (!wantTitle) wantTitle = prev.title || undefined;
   }
   const { title: t, html: body } = render(md, wantTitle);
-  const v = await stub.setDoc(body, t, opts, md);
+  const v = await stub.setDoc(body, t, opts, md, mode);
   const s = await stub.status();
   return {
     code: c, v, title: t, choices: opts, mode,
@@ -75,6 +75,46 @@ export async function readStatus(env: Env, code: string): Promise<Status | { err
   return {
     code: c, v: s.v, title: s.title, connected: s.connected, lastSeenS: s.lastSeenS,
     reading: s.reading ? { page: s.reading.page, pages: s.reading.pages } : null,
-    pending: s.pending, pendingKind: s.pendingKind,
+    pending: s.pending, pendingKind: s.pendingKind, drill: s.drill,
   };
+}
+
+// ---- deck mode (drill.ts) ---------------------------------------------------
+// Hand the DO a whole deck and it runs the loop itself: score the tap, render
+// feedback, turn the page. The agent's work moves to the edges — author the deck
+// here, read the report at the end.
+
+export async function startDrill(env: Env, code: string, deck: unknown): Promise<{ code: string; v: number; title: string; total: number; connected: boolean; lastSeenS: number | null } | { error: string }> {
+  const c = normCode(code);
+  if (!isCode(c)) return { error: "bad code" };
+  const stub = env.SESSION.get(env.SESSION.idFromName(c));
+  const r = await stub.startDrill(deck);
+  if ("error" in r) return r;
+  const s = await stub.status();
+  return { code: c, v: r.v, title: r.title, total: r.total, connected: s.connected, lastSeenS: s.lastSeenS };
+}
+
+// Blocks for the finished report, chunked ≤30s per RPC like awaitChoice so a DO
+// eviction mid-wait costs one re-arm. On timeout returns progress instead — a
+// deck takes minutes, far longer than any single tool call should hold.
+export async function awaitDrillReport(env: Env, code: string, timeoutMs: number): Promise<DrillWait | null | { error: string }> {
+  const c = normCode(code);
+  if (!isCode(c)) return { error: "bad code" };
+  const stub = env.SESSION.get(env.SESSION.idFromName(c));
+  const deadline = Date.now() + timeoutMs;
+  let last: DrillWait | null = null;
+  while (Date.now() < deadline) {
+    try {
+      last = await stub.waitReport(Math.min(deadline - Date.now(), 30_000));
+    } catch { await sleep(500); continue; } // DO evicted mid-wait — re-arm
+    if (!last || last.report) return last; // finished, cancelled, or nothing running
+  }
+  return last;
+}
+
+export async function resumeDrill(env: Env, code: string): Promise<{ code: string; v: number; progress: Progress } | { error: string }> {
+  const c = normCode(code);
+  if (!isCode(c)) return { error: "bad code" };
+  const r = await env.SESSION.get(env.SESSION.idFromName(c)).resumeDrill();
+  return "error" in r ? r : { code: c, v: r.v, progress: r.progress };
 }
