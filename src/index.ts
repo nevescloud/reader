@@ -1,6 +1,7 @@
 import { Session } from "./session";
 import { ReaderMcp } from "./mcp";
 import { landingPage, privacyPage, readerPage } from "./pages";
+import { ICON_SVG, iconPng } from "./icon";
 import { sendDoc, awaitChoice, readStatus, startDrill, awaitDrillReport, resumeDrill } from "./ops";
 import { newCode, normCode, isCode, isEreader } from "./util";
 import { allowDeviceRequest, allowFreshCode, allowMcpRequest, tooMany } from "./limit";
@@ -181,6 +182,19 @@ export default {
     // --- /privacy: the policy. A stable public URL, because the Connectors
     // Directory listing points at it and a moved one reads as an absent one. ---
     if (p === "/privacy") return html(privacyPage());
+
+    // --- the mark. Immutable content at a stable path, so it can be cached hard
+    // and pointed at from serverInfo.icons (which wants a same-origin URI). ---
+    if (p === "/icon.svg") {
+      return new Response(ICON_SVG, {
+        headers: { "content-type": "image/svg+xml; charset=utf-8", "cache-control": "public, max-age=86400" },
+      });
+    }
+    if (p === "/icon.png") {
+      return new Response(iconPng(), {
+        headers: { "content-type": "image/png", "cache-control": "public, max-age=86400" },
+      });
+    }
 
     // --- /new: always a fresh code (pairing-page link + escape hatch). ---
     if (p === "/new") {

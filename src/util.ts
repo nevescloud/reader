@@ -9,6 +9,10 @@
 // gateway (mcp.neves.cloud), which reaches us over a service binding.
 export const READER_HOST = "reader.neves.cloud"; // service origin (custom_domain)
 export const MCP_URL = `https://${READER_HOST}/mcp`; // the connector added in Claude — anonymous, no sign-in
+// Same-origin on purpose: the icons spec tells clients to verify an icon URI
+// shares the server's origin, so a cross-origin one may simply not be fetched.
+export const ICON_SVG_URL = `https://${READER_HOST}/icon.svg`;
+export const ICON_PNG_URL = `https://${READER_HOST}/icon.png`;
 export const READER_URL = READER_HOST; // the one thing typed on the e-reader
 // One-tap install: opens claude.ai with the Add-custom-connector dialog prefilled
 // (name + URL); the user reviews and presses Add. The query params are shipped but

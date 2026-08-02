@@ -12,7 +12,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { McpAgent } from "agents/mcp";
 import { z } from "zod";
 import { sendDoc, awaitChoice, readStatus, startDrill, awaitDrillReport, resumeDrill } from "./ops";
-import { readerLink, tapFeedUrl } from "./util";
+import { readerLink, tapFeedUrl, ICON_PNG_URL, ICON_SVG_URL } from "./util";
 
 const fmtAgo = (s: number): string => (s < 90 ? `${s}s` : s < 5400 ? `${Math.round(s / 60)}m` : `${Math.round(s / 3600)}h`);
 
@@ -39,7 +39,20 @@ const PROGRESS = z.object({
 // No OAuth on this origin, so no injected props — an empty record.
 export class ReaderMcp extends McpAgent<Env, unknown, Record<string, never>> {
   server = new McpServer(
-    { name: "reader.neves.cloud", version: "0.1.0" },
+    {
+      name: "reader.neves.cloud",
+      version: "0.1.0",
+      // SEP-973 (MCP 2025-11-25). claude.ai does not render this for custom
+      // connectors yet — anthropics/claude-ai-mcp#152 is open — so today the
+      // connector list falls back to the icon it resolves from the domain. It
+      // costs nothing to be correct here: other MCP clients do render it, and
+      // this is the path that stops being a fallback the day #152 ships. PNG
+      // first, since clients MUST support it and only SHOULD support SVG.
+      icons: [
+        { src: ICON_PNG_URL, mimeType: "image/png", sizes: ["256x256"] },
+        { src: ICON_SVG_URL, mimeType: "image/svg+xml", sizes: ["any"] },
+      ],
+    },
     {
       instructions: `Drive the user's e-ink reader (reader.neves.cloud). Send long-form text to read on e-ink instead of the chat window, optionally with tappable choices, and read back their taps.
 
