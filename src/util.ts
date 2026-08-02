@@ -14,7 +14,9 @@ export const READER_URL = READER_HOST; // the one thing typed on the e-reader
 // (name + URL); the user reviews and presses Add. The query params are shipped but
 // ahead of the help-center docs (verified live 2026-07-22) — the landing page keeps
 // a manual copy-paste row as the fallback if they ever change.
-export const ADD_TO_CLAUDE_URL = `https://claude.ai/customize/connectors?modal=add-custom-connector&connectorName=Reader&connectorUrl=${encodeURIComponent(MCP_URL)}`;
+// Name matches the Connectors Directory listing, so the connector a user adds by
+// hand is called the same thing as the one they'd add from the directory.
+export const ADD_TO_CLAUDE_URL = `https://claude.ai/customize/connectors?modal=add-custom-connector&connectorName=${encodeURIComponent("E-Ink Reader")}&connectorUrl=${encodeURIComponent(MCP_URL)}`;
 export const readerLink = (code: string) => `https://${READER_HOST}/${code}`;
 export const tapFeedUrl = (code: string) => `wss://${READER_HOST}/w/${code}`;
 
