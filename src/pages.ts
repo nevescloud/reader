@@ -10,14 +10,10 @@ import { ADD_TO_CLAUDE_URL, MCP_URL, READER_URL } from "./util";
 // "Add to Claude" label, so aria-hidden.
 const CLAUDE_SPARK = `<svg aria-hidden=true focusable=false fill="#D97757" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="m4.7144 15.9555 4.7174-2.6471.079-.2307-.079-.1275h-.2307l-.7893-.0486-2.6956-.0729-2.3375-.0971-2.2646-.1214-.5707-.1215-.5343-.7042.0546-.3522.4797-.3218.686.0608 1.5179.1032 2.2767.1578 1.6514.0972 2.4468.255h.3886l.0546-.1579-.1336-.0971-.1032-.0972L6.973 9.8356l-2.55-1.6879-1.3356-.9714-.7225-.4918-.3643-.4614-.1578-1.0078.6557-.7225.8803.0607.2246.0607.8925.686 1.9064 1.4754 2.4893 1.8336.3643.3035.1457-.1032.0182-.0728-.164-.2733-1.3539-2.4467-1.445-2.4893-.6435-1.032-.17-.6194c-.0607-.255-.1032-.4674-.1032-.7285L6.287.1335 6.6997 0l.9957.1336.419.3642.6192 1.4147 1.0018 2.2282 1.5543 3.0296.4553.8985.2429.8318.091.255h.1579v-.1457l.1275-1.706.2368-2.0947.2307-2.6957.0789-.7589.3764-.9107.7468-.4918.5828.2793.4797.686-.0668.4433-.2853 1.8517-.5586 2.9021-.3643 1.9429h.2125l.2429-.2429.9835-1.3053 1.6514-2.0643.7286-.8196.85-.9046.5464-.4311h1.0321l.759 1.1293-.34 1.1657-1.0625 1.3478-.8804 1.1414-1.2628 1.7-.7893 1.36.0729.1093.1882-.0183 2.8535-.607 1.5421-.2794 1.8396-.3157.8318.3886.091.3946-.3278.8075-1.967.4857-2.3072.4614-3.4364.8136-.0425.0304.0486.0607 1.5482.1457.6618.0364h1.621l3.0175.2247.7892.522.4736.6376-.079.4857-1.2142.6193-1.6393-.3886-3.825-.9107-1.3113-.3279h-.1822v.1093l1.0929 1.0686 2.0035 1.8092 2.5075 2.3314.1275.5768-.3218.4554-.34-.0486-2.2039-1.6575-.85-.7468-1.9246-1.621h-.1275v.17l.4432.6496 2.3436 3.5214.1214 1.0807-.17.3521-.6071.2125-.6679-.1214-1.3721-1.9246L14.38 17.959l-1.1414-1.9428-.1397.079-.674 7.2552-.3156.3703-.7286.2793-.6071-.4614-.3218-.7468.3218-1.4753.3886-1.9246.3157-1.53.2853-1.9004.17-.6314-.0121-.0425-.1397.0182-1.4328 1.9672-2.1796 2.9446-1.7243 1.8456-.4128.164-.7164-.3704.0667-.6618.4008-.5889 2.386-3.0357 1.4389-1.882.929-1.0868-.0062-.1579h-.0546l-6.3385 4.1164-1.1293.1457-.4857-.4554.0608-.7467.2307-.2429 1.9064-1.3114Z"/></svg>`;
 
-export function landingPage(): string {
-  const mcpUrl = MCP_URL;
-  return `<!doctype html><html lang=en><head><meta charset=utf-8>
-<meta name=viewport content="width=device-width,initial-scale=1">
-<meta name=color-scheme content="light dark">
-<link rel=icon href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%93%96%3C/text%3E%3C/svg%3E">
-<title>Read it on your e-reader</title>
-<style>
+// Everything both browser-facing pages need. Landing adds its own on top
+// (LANDING_CSS) — split so the privacy page can't drift from the site it belongs
+// to, which a second copy of these rules would guarantee.
+const BASE_CSS = `
   *{box-sizing:border-box}
   body{margin:0;line-height:1.5;color:#1d1d1f;background:#fff;-webkit-font-smoothing:antialiased;
     font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",system-ui,sans-serif;
@@ -28,16 +24,32 @@ export function landingPage(): string {
   a:focus-visible{outline:3px solid #0071e3;outline-offset:2px;border-radius:4px}
   h1{font-size:2.2rem;line-height:1.08;letter-spacing:-.022em;font-weight:700;margin:3rem 0 .5rem}
   .sub{font-size:1.2rem;color:#6e6e73;margin:0 0 3rem}
-  ol{list-style:none;padding:0;margin:0;display:grid;gap:2rem}
   h2{font-size:1.05rem;font-weight:600;margin:0 0 .35rem}
+  button{min-height:44px;min-width:44px;padding:0 1.1rem;font-size:1rem;font-weight:600;color:#fff;
+    background:#0071e3;border:0;border-radius:12px;cursor:pointer;-webkit-appearance:none;white-space:nowrap}
+  button:hover{background:#0077ed}
+  button:focus-visible,code:focus-visible{outline:3px solid #0071e3;outline-offset:2px}
+  .foot{margin-top:3rem;color:#86868b;font-size:.95rem}
+  .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
+  button.theme{background:transparent;color:#86868b;border:1px solid #d2d2d7;font-weight:500;padding:0 1rem}
+  button.theme:hover{background:#f5f5f7;color:inherit}
+  /* Class, not the media query itself: the OS preference is the default, and the
+     footer button has to be able to override it in both directions (resolved by
+     the head script before first paint). */
+  .dark body{background:#000;color:#f5f5f7}.dark .sub{color:#a1a1a6}
+  .dark a{color:#0a84ff}
+  .dark .foot{color:#6e6e73}
+  .dark button.theme{border-color:#3a3a3c;color:#a1a1a6}
+  .dark button.theme:hover{background:#1c1c1e}
+  @media (prefers-reduced-motion:reduce){*{transition:none!important}}`;
+
+const LANDING_CSS = `
+  ol{list-style:none;padding:0;margin:0;display:grid;gap:2rem}
   li p{margin:.35rem 0}
   .url{display:flex;gap:.5rem;align-items:stretch;margin-top:.75rem}
   .url code{flex:1;min-width:0;font:1rem/1 ui-monospace,SFMono-Regular,Menlo,monospace;
     background:#f5f5f7;border-radius:12px;padding:0 1rem;display:flex;align-items:center;overflow:auto}
-  button{min-height:44px;min-width:44px;padding:0 1.1rem;font-size:1rem;font-weight:600;color:#fff;
-    background:#0071e3;border:0;border-radius:12px;cursor:pointer;-webkit-appearance:none;white-space:nowrap}
-  button:hover{background:#0077ed}
-  button:focus-visible,code:focus-visible,.cta:focus-visible{outline:3px solid #0071e3;outline-offset:2px}
+  .cta:focus-visible{outline:3px solid #0071e3;outline-offset:2px}
   .cta{display:inline-flex;align-items:center;gap:.6rem;min-height:48px;padding:.6rem 1.4rem;margin:.75rem 0 .25rem;
     border:1px solid #d2d2d7;border-radius:12px;background:#fff;color:inherit;text-decoration:none;
     font-size:1.05rem;font-weight:600}
@@ -49,33 +61,56 @@ export function landingPage(): string {
   summary::marker{color:#86868b}
   summary:hover{color:inherit}
   summary:focus-visible{outline:3px solid #0071e3;outline-offset:2px;border-radius:6px}
-  .foot{margin-top:3rem;color:#86868b;font-size:.95rem}
-  .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
-  button.theme{background:transparent;color:#86868b;border:1px solid #d2d2d7;font-weight:500;padding:0 1rem}
-  button.theme:hover{background:#f5f5f7;color:inherit}
-  /* Class, not the media query itself: the OS preference is the default, and the
-     footer button has to be able to override it in both directions (resolved by
-     the head script before first paint). */
-  .dark body{background:#000;color:#f5f5f7}.dark .sub{color:#a1a1a6}
-  .dark a{color:#0a84ff}
-  .dark .url code{background:#1c1c1e}.dark .foot{color:#6e6e73}
+  .dark .url code{background:#1c1c1e}
   /* color:inherit restated: .dark a outranks .cta's own inherit, which the bare
      element rule it replaced did not — the CTA label would go link-blue in dark. */
   .dark .cta{background:#1c1c1e;border-color:#3a3a3c;color:inherit}
   .dark .cta:hover{background:#2c2c2e}
-  .dark .or,.dark summary{color:#a1a1a6}
-  .dark button.theme{border-color:#3a3a3c;color:#a1a1a6}
-  .dark button.theme:hover{background:#1c1c1e}
-  @media (prefers-reduced-motion:reduce){*{transition:none!important}}
-</style>
-<script>
-  /* Shares lr_theme with the reader page, so a choice made while reading holds
-     here too. Runs before first paint — a pinned theme never flashes the other. */
+  .dark .or,.dark summary{color:#a1a1a6}`;
+
+// Pre-paint theme resolution. Shares lr_theme with the reader page, so a choice
+// made while reading holds on the website too — and a pinned theme never flashes
+// the other one first.
+const THEME_HEAD = `<script>
   (function(){var t;try{t=localStorage.getItem('lr_theme');}catch(e){}
     if(t!=='light'&&t!=='dark')t=(window.matchMedia&&matchMedia('(prefers-color-scheme:dark)').matches)?'dark':'light';
     document.documentElement.className=t;
     document.documentElement.style.colorScheme=t;})();
-</script></head><body>
+</script>`;
+
+// The label names the destination, not the current state — a toggle reading
+// "Dark" that means "you are in dark" is the classic ambiguity. Painting it is
+// separate from persisting it: labelling on load must not pin a theme that was
+// still following the OS.
+const THEME_BODY = `<script>
+  var themeBtn=document.getElementById('theme');
+  function paintTheme(){
+    var to=document.documentElement.className==='dark'?'light':'dark';
+    themeBtn.textContent=(to==='dark'?'☾':'☀')+'  '+to.charAt(0).toUpperCase()+to.slice(1);
+    themeBtn.setAttribute('aria-label','Switch to '+to+' theme');
+  }
+  paintTheme();
+  themeBtn.addEventListener('click',function(){
+    var t=document.documentElement.className==='dark'?'light':'dark';
+    document.documentElement.className=t;
+    document.documentElement.style.colorScheme=t;
+    try{localStorage.setItem('lr_theme',t);}catch(e){}
+    paintTheme();
+  });
+</script>`;
+
+const HEAD = (title: string, css: string): string => `<!doctype html><html lang=en><head><meta charset=utf-8>
+<meta name=viewport content="width=device-width,initial-scale=1">
+<meta name=color-scheme content="light dark">
+<link rel=icon href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%93%96%3C/text%3E%3C/svg%3E">
+<title>${title}</title>
+<style>${css}
+</style>
+${THEME_HEAD}</head><body>`;
+
+export function landingPage(): string {
+  const mcpUrl = MCP_URL;
+  return `${HEAD("Read it on your e-reader", BASE_CSS + LANDING_CSS)}
 <main>
   <h1>Read it on your e-reader</h1>
   <p class=sub>Send anything Claude writes to your Kindle or Kobo &mdash; read it on e-ink, not a screen.</p>
@@ -102,29 +137,12 @@ export function landingPage(): string {
   </ol>
   <p class=foot>No account, nothing stored &mdash; content expires on its own. The code on the screen is the only key.</p>
   <p class=foot>Reading on this device instead? <a href="/new">Get a code</a>.</p>
+  <p class=foot><a href="/privacy">Privacy</a> &middot; <a href="https://github.com/nevescloud/reader">Source &amp; docs</a> &middot; <a href="https://github.com/nevescloud/reader/issues">Support</a></p>
   <p class=foot><button class=theme id=theme type=button></button></p>
 </main>
 <span id=live role=status aria-live=polite class=sr></span>
+${THEME_BODY}
 <script>
-  // The label names the destination, not the current state — a toggle reading
-  // "Dark" that means "you are in dark" is the classic ambiguity. Painting it is
-  // separate from persisting it: labelling on load must not pin a theme that was
-  // still following the OS.
-  var themeBtn=document.getElementById('theme');
-  function paintTheme(){
-    var to=document.documentElement.className==='dark'?'light':'dark';
-    themeBtn.textContent=(to==='dark'?'☾':'☀')+'  '+to.charAt(0).toUpperCase()+to.slice(1);
-    themeBtn.setAttribute('aria-label','Switch to '+to+' theme');
-  }
-  paintTheme();
-  themeBtn.addEventListener('click',function(){
-    var t=document.documentElement.className==='dark'?'light':'dark';
-    document.documentElement.className=t;
-    document.documentElement.style.colorScheme=t;
-    try{localStorage.setItem('lr_theme',t);}catch(e){}
-    paintTheme();
-  });
-
   var live=document.getElementById('live');
   var copies=document.querySelectorAll('.copy');
   for(var i=0;i<copies.length;i++)(function(b){
@@ -137,6 +155,82 @@ export function landingPage(): string {
     });
   })(copies[i]);
 </script>
+</body></html>`;
+}
+
+// The privacy policy. Required to list in Claude's Connectors Directory, where an
+// absent or vague one is an immediate rejection — but the reason it's short is
+// the architecture, not brevity for its own sake: no accounts, one Durable Object
+// per code, deleteAll after 6h of mutual silence. Every claim below is checkable
+// against session.ts (TTL_MS, alarm), index.ts (the lr cookie) and limit.ts (IP).
+// Anything that changes there changes here in the same commit.
+export function privacyPage(): string {
+  return `${HEAD("Privacy — reader", BASE_CSS + `
+  h2{margin:2.5rem 0 .4rem;font-size:1.15rem}
+  li{margin:.3rem 0}
+  ul{padding-left:1.2rem}`)}
+<main>
+  <h1>Privacy</h1>
+  <p class=sub>What ${READER_URL} holds, for how long, and who else sees it.</p>
+
+  <p><b>There are no accounts.</b> No sign-up, no email address, no name, no profile.
+  The 5-character code your e-reader shows is generated at random on the device and is
+  the only identifier in the system.</p>
+
+  <h2>What is stored</h2>
+  <p>Against a code, and only while a session is alive:</p>
+  <ul>
+    <li>the text you asked Claude to send, and the title and button labels shown with it;</li>
+    <li>your taps &mdash; which label, when, and which version of the document it was tapped on.
+      For an <b>&#9998; explain</b> tap, the text you marked plus about 80 characters either
+      side of it, so the explanation can be placed in context;</li>
+    <li>your place in the document (page N of M) and when the device last checked in;</li>
+    <li>while a drill is running: its questions, the answer key, and your per-item results.</li>
+  </ul>
+
+  <h2>How long</h2>
+  <p>A session <b>deletes itself after 6 hours</b> in which neither your device nor Claude has
+  touched it. Deletion removes everything above at once; there is no archive and no backup
+  copy to restore from. A session still being read stays alive &mdash; the clock is on silence,
+  not on age.</p>
+
+  <h2>Cookies</h2>
+  <p>One, first-party, named <code>lr</code>: it remembers the code this browser is using so a
+  bookmark returns to the same reader instead of minting a new one. It expires in 48 hours and
+  is <code>HttpOnly</code>, <code>Secure</code>, <code>SameSite=Lax</code>. There are no
+  analytics, no advertising, no third-party cookies and no trackers anywhere on this site.</p>
+
+  <h2>IP addresses</h2>
+  <p>Your IP address is used to count requests for abuse prevention &mdash; the code is the only
+  key to a session, so the rate limit is what stops someone guessing their way into other
+  people's. It is not written into the session and is not used to identify or profile you. Our
+  hosting provider, Cloudflare, also keeps standard request logs, as any web host does.</p>
+
+  <h2>Who else sees it</h2>
+  <p><b>Nobody.</b> Nothing here is sold, rented, shared with third parties, or used to train
+  any model. Content travels between the Claude client you connected, this service, and your
+  e-reader &mdash; and nowhere else. The service runs on Cloudflare Workers and Durable Objects;
+  Cloudflare processes the data as our hosting provider and nothing more.</p>
+
+  <p><b>One thing worth knowing:</b> because there are no accounts, the code <i>is</i> the
+  capability &mdash; anyone who has it can see what is on that screen and send to it. Treat it
+  like a password, and if you have shared one, open ${READER_URL}<code>/new</code> for a fresh
+  code.</p>
+
+  <h2>Children</h2>
+  <p>This service is not directed at children under 13 and collects no information that would
+  identify anyone, of any age.</p>
+
+  <h2>Contact</h2>
+  <p>Questions, or a request about data: <a href="https://github.com/nevescloud/reader/issues">open
+  an issue</a> on the source repository. The code that implements everything on this page is in
+  the same repository, so any claim here can be checked against it.</p>
+
+  <p class=foot>Last updated 1 August 2026.</p>
+  <p class=foot><a href="/">&larr; Back</a></p>
+  <p class=foot><button class=theme id=theme type=button></button></p>
+</main>
+${THEME_BODY}
 </body></html>`;
 }
 

@@ -1,8 +1,9 @@
 import { Session } from "./session";
 import { ReaderMcp } from "./mcp";
-import { landingPage, readerPage } from "./pages";
+import { landingPage, privacyPage, readerPage } from "./pages";
 import { sendDoc, awaitChoice, readStatus, startDrill, awaitDrillReport, resumeDrill } from "./ops";
 import { newCode, normCode, isCode, isEreader } from "./util";
+import { allowDeviceRequest, allowFreshCode, allowMcpRequest, tooMany } from "./limit";
 
 export { Session, ReaderMcp };
 
@@ -23,6 +24,13 @@ function json(body: unknown, status = 200): Response {
   });
 }
 
+// decodeURIComponent throws a URIError on a malformed escape ("/%", "/%zz"), and
+// an uncaught throw here is a 500 on a path that should simply 404. Every
+// device-facing route decodes through this.
+function decode(s: string): string {
+  try { return decodeURIComponent(s); } catch { return s; }
+}
+
 // The reader surface is public+anonymous, so the write API can't lean on "no
 // public route" — it gates on READER_TOKEN. Only the reader_send tool on the
 // OAuth'd gateway holds the secret. Fail closed: unset secret => every write is
@@ -37,7 +45,11 @@ export default {
     const p = url.pathname;
 
     // --- anonymous MCP endpoint (Streamable HTTP). No auth on this origin. ---
+    // Loose ceiling only: these come from the MCP client's egress, which is
+    // shared across users — a tight per-IP budget here would have them throttle
+    // each other (see limit.ts).
     if (p === "/mcp" || p.startsWith("/mcp/")) {
+      if (!(await allowMcpRequest(env, req))) return tooMany();
       return mcpHandler.fetch(req, env, ctx);
     }
 
@@ -92,9 +104,19 @@ export default {
       return "error" in r ? json({ error: r.error }, 400) : json(r);
     }
 
+    // --- everything below is device-facing and code-bearing. One per-IP budget
+    // covers the lot, sized so a real reader never touches it (limit.ts); it caps
+    // how fast one address can mint Durable Objects. The tight first-contact
+    // budget — the control that actually restores the keyspace — is spent inside
+    // the /s/ poll, where the DO can say whether the code is new. ---
+    const bareCode = p.length > 1 && !p.includes("/", 1) ? normCode(decode(p.slice(1))) : "";
+    if (p.startsWith("/c/") || p.startsWith("/s/") || p.startsWith("/w/") || isCode(bareCode)) {
+      if (!(await allowDeviceRequest(env, req))) return tooMany();
+    }
+
     // --- public tap target: the reader records a choice/quick-action/explain here. ---
     if (p.startsWith("/c/")) {
-      const c = normCode(decodeURIComponent(p.slice("/c/".length)));
+      const c = normCode(decode(p.slice("/c/".length)));
       const tapV = parseInt(url.searchParams.get("v") || "0", 10) || 0;
       // k=q|a|e types the tap on the wire; absent (pages loaded pre-kind) the DO
       // falls back to matching the label against the known quick-action set.
@@ -119,22 +141,26 @@ export default {
 
     // --- reader poll (doubles as the reading-position heartbeat via p/n). ---
     if (p.startsWith("/s/")) {
-      const code = normCode(decodeURIComponent(p.slice("/s/".length)));
+      const code = normCode(decode(p.slice("/s/".length)));
       if (!isCode(code)) return new Response("bad code", { status: 400 });
       const since = parseInt(url.searchParams.get("v") || "0", 10) || 0;
       const page = parseInt(url.searchParams.get("p") || "0", 10) || 0;
       const pages = parseInt(url.searchParams.get("n") || "0", 10) || 0;
-      const r = await env.SESSION.get(env.SESSION.idFromName(code)).getSince(since, page, pages);
+      const { fresh, doc } = await env.SESSION.get(env.SESSION.idFromName(code)).getSince(since, page, pages);
+      // First contact with this code. A device pays this once and is never fresh
+      // again; a guesser pays it every time — so this budget, not the loose one
+      // above, is what makes 24.3M codes behave like a secret.
+      if (fresh && !(await allowFreshCode(env, req))) return tooMany();
       const headers = { "content-type": "application/json", "cache-control": "no-store" };
-      if (!r) return new Response(null, { status: 204, headers });
-      return new Response(JSON.stringify(r), { headers });
+      if (!doc) return new Response(null, { status: 204, headers });
+      return new Response(JSON.stringify(doc), { headers });
     }
 
     // --- tap feed: one WS frame per tap, for event-driven callers (e.g. a
     // Claude Code Monitor holding the socket — tap wakes the model with no
     // polling). Read-only; keyed on the code like every device-facing route. ---
     if (p.startsWith("/w/")) {
-      const c = normCode(decodeURIComponent(p.slice("/w/".length)));
+      const c = normCode(decode(p.slice("/w/".length)));
       if (!isCode(c)) return new Response("bad code", { status: 400 });
       if ((req.headers.get("upgrade") || "").toLowerCase() !== "websocket") {
         return new Response("expected websocket", { status: 426 });
@@ -152,6 +178,10 @@ export default {
       return r;
     };
 
+    // --- /privacy: the policy. A stable public URL, because the Connectors
+    // Directory listing points at it and a moved one reads as an absent one. ---
+    if (p === "/privacy") return html(privacyPage());
+
     // --- /new: always a fresh code (pairing-page link + escape hatch). ---
     if (p === "/new") {
       const code = newCode();
@@ -167,7 +197,7 @@ export default {
     }
     // --- /<code>: the reader page. Anything that isn't a valid code (favicon
     // probes, typos) 404s — it must not get a page, cookie, or DO. ---
-    const code = normCode(decodeURIComponent(p.slice(1)));
+    const code = normCode(decode(p.slice(1)));
     if (!isCode(code)) return new Response("not found", { status: 404 });
     // The UA picks the dark palette: e-ink gets a two-ink one (greys are dither
     // patterns there — see pages.ts). Light is identical either way.

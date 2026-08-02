@@ -8,9 +8,11 @@ Cloudflare Worker on its own subdomain (the nevescloud domain standard: a
 worker-backed service `<repo>` lives at `<repo>.neves.cloud`, so the repo name
 and the hostname are the same token). The MCP tools that drive the reader
 (`send_to_reader`, `await_reader_choice`, `check_reader`, `send_drill`,
-`await_drill_report`, `resume_drill`, `pair_reader`, `predict_then_reveal`) live
-on the OAuth'd **`mcp.neves.cloud/mcp`** server and reach this Worker's write API
-over a service binding.
+`await_drill_report`, `resume_drill`) are served from this Worker itself, at
+`reader.neves.cloud/mcp`, with no sign-in anywhere on the origin. A second,
+OAuth'd copy of the same tools runs on `mcp.neves.cloud/mcp` for people who want
+their reader remembered between sessions; it reaches this Worker's write API over
+a service binding.
 
 Two surfaces, two audiences:
 - **public + anonymous** (`/`, `/<code>`, `/s`, `/c`, `/w`): the reader page, its
@@ -47,11 +49,10 @@ replace is the right granularity *and* the robust one.
   gateway simply isn't present on the reader's own host. The tools call the
   Session DOs **in-process** (no binding, no token). The 5-char code is required
   on every call (no accounts → nothing to hang a saved pairing on).
-- **OAuth'd, remembers your reader** — `mcp.neves.cloud/mcp`, in the gateway repo
-  (`../mcp`, `src/reader-tools.ts`). GitHub sign-in buys a saved pairing (`code`
-  optional after the first send) and a `pair_reader` tool. It reaches the write
-  API over a service binding at `/_api/*` with `Authorization: Bearer
-  ${READER_TOKEN}`.
+- **OAuth'd, remembers your reader** — `mcp.neves.cloud/mcp`. GitHub sign-in buys
+  a saved pairing (`code` optional after the first send) and a `pair_reader` tool.
+  It reaches the write API over a service binding at `/_api/*` with
+  `Authorization: Bearer ${READER_TOKEN}`.
 
 Both call the same core operations (`src/ops.ts`), so their append/render/
 delivery behavior can't drift.
@@ -83,9 +84,36 @@ agent picks the mode.
 - `src/mcp.ts` — `ReaderMcp` (agents/McpAgent): anonymous Streamable-HTTP server exposing `send_to_reader` / `await_reader_choice` / `check_reader` / `send_drill` / `await_drill_report` / `resume_drill`.
 - `src/drill.ts` — deck mode's rules, pure: deck validation, the tap→next-state transition, the three screens (question / feedback / summary), the report. No storage, no rendering — so the machine is testable without a DO harness.
 - `src/session.ts` — one Durable Object per code; holds the doc + a version the reader polls, the pending tap (typed answer/quick), an in-DO waiter that `_api/await` parks on, drill state + its report waiter, and hibernating feed sockets; self-deletes after 6h of mutual silence.
-- `src/md.ts` — markdown → clean reading HTML (same shape as the static `kindle` repo's `build.py`).
-- `src/pages.ts` — `landingPage` (setup; HIG over the web-conformance floor) + `readerPage` (e-ink serif, ES5-only inline script).
+- `src/md.ts` — markdown → clean reading HTML.
+- `src/pages.ts` — `landingPage` (setup) + `privacyPage` + `readerPage` (e-ink serif, ES5-only inline script).
+- `src/limit.ts` — the anti-enumeration budgets. See **Security** below.
 - `src/util.ts` — `READER_HOST`, `isCode`, and the public-URL constants (single source).
+
+## Security
+The code is the whole capability, so the keyspace is the security parameter:
+30<sup>5</sup> = 24,300,000 (base32 minus the characters you can misread off
+e-ink). Unthrottled that is a search space rather than a secret, so two per-IP
+budgets sit in front of it:
+
+- a loose ceiling on every code-bearing device route, sized well above a real
+  reader's 2.5s poll — it caps how fast one address can mint Durable Objects;
+- a tight budget spent **only on first contact with a code**. A device pays it
+  once and is never fresh again; a guesser pays it on every guess. At 30/min one
+  address needs on the order of a year and a half to walk the keyspace.
+
+The write API (`/_api/*`) is a separate matter: shared-secret bearer, fail-closed
+(unset secret rejects every write).
+
+## Privacy
+No accounts, no email, no analytics, no third-party sharing, nothing used for
+training. A session holds the document, your taps, and your place in it, and
+**deletes itself after 6h in which neither side touches it**. One first-party
+cookie remembers your code for 48h. Full policy: **https://reader.neves.cloud/privacy**
+(and `privacyPage` in `src/pages.ts` — every claim in it is checkable against the
+code in this repo).
+
+## Support
+Open an issue: https://github.com/nevescloud/reader/issues
 
 ## Develop
 ```sh

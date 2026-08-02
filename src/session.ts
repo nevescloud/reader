@@ -103,7 +103,14 @@ export class Session extends DurableObject {
   }
 
   // The device's poll doubles as its reading-state heartbeat (page/pages).
-  async getSince(since: number, page = 0, pages = 0): Promise<{ v: number; html: string; title: string; choices: string[] } | null> {
+  //
+  // `fresh` says this poll is the first contact any device has made with this
+  // code — which is how the router tells a reader apart from a code-guesser
+  // (limit.ts): a real device is fresh exactly once, an enumerator is fresh on
+  // every guess. It must be read BEFORE the lastPoll write below, which is what
+  // makes the code non-fresh from the second poll on.
+  async getSince(since: number, page = 0, pages = 0): Promise<{ fresh: boolean; doc: { v: number; html: string; title: string; choices: string[] } | null }> {
+    const fresh = !((await this.ctx.storage.get<number>("lastPoll")) || (await this.ctx.storage.get<number>("v")));
     const state: Record<string, unknown> = { lastPoll: Date.now() };
     if (pages > 0) state.read = { page, pages, at: Date.now() } satisfies Read;
     await this.ctx.storage.put(state);
@@ -113,12 +120,15 @@ export class Session extends DurableObject {
     // "differs", not "greater": after a TTL wipe v restarts at 1 while a page
     // left open still holds the old higher v — under `v <= since` that device
     // went silently deaf to every later send.
-    if (v === 0 || v === since) return null;
+    if (v === 0 || v === since) return { fresh, doc: null };
     return {
-      v,
-      html: (await this.ctx.storage.get<string>("html")) ?? "",
-      title: (await this.ctx.storage.get<string>("title")) ?? "",
-      choices: (await this.ctx.storage.get<string[]>("choices")) ?? [],
+      fresh,
+      doc: {
+        v,
+        html: (await this.ctx.storage.get<string>("html")) ?? "",
+        title: (await this.ctx.storage.get<string>("title")) ?? "",
+        choices: (await this.ctx.storage.get<string[]>("choices")) ?? [],
+      },
     };
   }
 

@@ -61,6 +61,7 @@ E-INK CONTENT: markdown + GFM tables + SVG (fenced \`\`\`svg or raw <svg>) rende
     this.server.registerTool(
       "send_to_reader",
       {
+        title: "Send to e-reader",
         description:
           `Display long-form text on the user's e-reader (Kindle, Kobo, etc.) in real time, for comfortable reading on e-ink instead of the chat window. "code" is the 5-character code on the device (they get it by opening reader.neves.cloud). mode "replace" (default) swaps what's shown and returns to page 1; mode "append" adds to the end — if they're reading the tail it follows, otherwise their page is held (stream a long piece in section-sized chunks: send only the new chunk). Optionally pass "choices" — short labels rendered as big tappable buttons; the user taps one and you read it back with await_reader_choice. The reader also always shows quick actions (↻ simpler / → more / ✎ explain) in its menu — those taps surface via await_reader_choice or check_reader. Every code has a read-only WebSocket tap feed (wss://reader.neves.cloud/w/<CODE>, returned as tap_feed) — watch it instead of polling. The response says honestly whether the device is live, sleeping, or has never polled the code.`,
         inputSchema: {
@@ -81,7 +82,7 @@ E-INK CONTENT: markdown + GFM tables + SVG (fenced \`\`\`svg or raw <svg>) rende
           link: z.string(),
           tap_feed: z.string().describe("Read-only WebSocket URL streaming one JSON frame per tap."),
         },
-        annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+        annotations: { title: "Send to e-reader", readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
       },
       async ({ code, content, title, choices, mode }) => {
         const d = await sendDoc(env, { code, content, title, choices, mode });
@@ -107,6 +108,7 @@ E-INK CONTENT: markdown + GFM tables + SVG (fenced \`\`\`svg or raw <svg>) rende
     this.server.registerTool(
       "await_reader_choice",
       {
+        title: "Wait for a tap on the e-reader",
         description:
           `Consume the user's tap on their e-reader — one of the choices you passed to send_to_reader, a quick action (↻ simpler / → more) they can tap anytime, or an explain-request (they marked a word/sentence/block via ✎ explain… for an in-context explanation). Blocks until they tap or it times out; a timeout is not an answer — the tap may land moments later, so don't re-send the question (prefer watching wss://reader.neves.cloud/w/<CODE> and calling this after a frame arrives). Pass min_version (the version returned by your send) so a tap left on an older document isn't mistaken for an answer to the current one.`,
         inputSchema: {
@@ -125,7 +127,7 @@ E-INK CONTENT: markdown + GFM tables + SVG (fenced \`\`\`svg or raw <svg>) rende
           document_version: z.number().nullable().optional().describe("The doc version the tap was made on."),
           timed_out: z.boolean(),
         },
-        annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+        annotations: { title: "Wait for a tap on the e-reader", readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
       },
       async ({ code, timeout_seconds, min_version }) => {
         const t = Math.min(Math.max(timeout_seconds ?? 45, 5), 55);
@@ -166,7 +168,7 @@ E-INK CONTENT: markdown + GFM tables + SVG (fenced \`\`\`svg or raw <svg>) rende
           pending_kind: z.enum(["choice", "quick_action", "explain"]).nullable(),
           drill: PROGRESS.nullable().describe("Set while a send_drill deck is running."),
         },
-        annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+        annotations: { title: "Check reader connection", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
       },
       async ({ code }) => {
         const d = await readStatus(env, code);
@@ -199,6 +201,7 @@ E-INK CONTENT: markdown + GFM tables + SVG (fenced \`\`\`svg or raw <svg>) rende
     this.server.registerTool(
       "send_drill",
       {
+        title: "Run a drill on the e-reader",
         description:
           `Run a fixed multiple-choice drill on the e-reader WITHOUT a round-trip per question. You author the whole deck here; the server then scores each tap, shows your feedback and turns the page on its own, so pages advance at device speed instead of at model speed. Collect the results with await_drill_report. Use this whenever the questions and answers are known up front and closed-form (flashcards, active recall, quizzing a reading, exam prep). Use send_to_reader + await_reader_choice instead when the next screen depends on what they say — teaching, discussion, partial credit, adaptive re-explaining. While a drill runs, the user's quick actions (↻ simpler / → more / ✎ explain) still reach you: they park the drill and surface via await_reader_choice — answer with send_to_reader mode "append", then resume_drill. A send_to_reader with mode "replace" ends the drill.`,
         inputSchema: {
@@ -220,7 +223,7 @@ E-INK CONTENT: markdown + GFM tables + SVG (fenced \`\`\`svg or raw <svg>) rende
           link: z.string(),
           tap_feed: z.string().describe("Read-only WebSocket. Frames: {type:\"drill\"} per answer, {type:\"drill_done\"} when the deck clears — watch for drill_done, then call await_drill_report."),
         },
-        annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+        annotations: { title: "Run a drill on the e-reader", readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
       },
       async ({ code, title, items, policy }) => {
         const d = await startDrill(env, code, { title, items, policy });
@@ -244,6 +247,7 @@ E-INK CONTENT: markdown + GFM tables + SVG (fenced \`\`\`svg or raw <svg>) rende
     this.server.registerTool(
       "await_drill_report",
       {
+        title: "Get drill results",
         description:
           `Collect the results of a send_drill deck. Blocks until the deck clears, then returns per-item results — what they tapped, whether they got it first try, retries, seconds per item, and any quick-action/explain requests they made along the way. A deck takes minutes, so a return with finished=false is normal: it carries progress, and you re-arm (or better, wait for a {"type":"drill_done"} frame on the tap feed and call this once). finished=true with cancelled=true means a send_to_reader replace, or a new deck, superseded it.`,
         inputSchema: {
@@ -262,7 +266,7 @@ E-INK CONTENT: markdown + GFM tables + SVG (fenced \`\`\`svg or raw <svg>) rende
           }).nullable(),
           progress: PROGRESS.nullable(),
         },
-        annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+        annotations: { title: "Get drill results", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
       },
       async ({ code, timeout_seconds }) => {
         const t = Math.min(Math.max(timeout_seconds ?? 45, 5), 55);
@@ -309,11 +313,12 @@ E-INK CONTENT: markdown + GFM tables + SVG (fenced \`\`\`svg or raw <svg>) rende
     this.server.registerTool(
       "resume_drill",
       {
+        title: "Put the drill question back on screen",
         description:
           `Put the current drill question back on screen after you've answered a quick action or an explain-request that parked it. Only needed when your reply used send_to_reader mode "replace" (which ends the drill — you'd have to re-send the deck) or when the user is waiting on a fresh screen; a reply sent with mode "append" leaves the buttons in place and the next answer-tap resumes the drill on its own.`,
         inputSchema: { code: z.string().describe("The 5-character reader code shown on the device.") },
         outputSchema: { code: z.string(), version: z.number(), progress: PROGRESS },
-        annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+        annotations: { title: "Put the drill question back on screen", readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
       },
       async ({ code }) => {
         const r = await resumeDrill(env, code);

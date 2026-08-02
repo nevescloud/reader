@@ -28,6 +28,18 @@
       { "name": "READER_MCP", "class_name": "ReaderMcp" }
     ]
   },
+  // Anti-enumeration budgets (limit.ts). The code is the capability, so the
+  // 30^5 keyspace is the security parameter and an unthrottled origin turns it
+  // into a search space. Per-IP, per-colo. RL_ALL/RL_MCP are ceilings sized well
+  // above any real client; RL_FRESH is the control that matters — it is spent
+  // only on first contact with a code, which a reader does once and a guesser
+  // does every time.
+  "ratelimits": [
+    { "name": "RL_ALL", "namespace_id": "1001", "simple": { "limit": 240, "period": 60 } },
+    { "name": "RL_FRESH", "namespace_id": "1002", "simple": { "limit": 30, "period": 60 } },
+    { "name": "RL_MCP", "namespace_id": "1003", "simple": { "limit": 1200, "period": 60 } }
+  ],
+
   "migrations": [
     { "tag": "v1", "new_sqlite_classes": ["Live", "Session"] },
     { "tag": "v2", "deleted_classes": ["Live"] },
