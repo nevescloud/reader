@@ -4,6 +4,7 @@
 //   readerPage  — the e-reader's ~2012 WebKit. e-ink serif, paginated (not scrolled),
 //                 ES5-only inline script (var / XHR / string-concat, -webkit- prefixes,
 //                 px math from innerWidth/innerHeight — no flex/grid/vh/vw).
+//                 A normal browser gets the same page plus PAPER_CSS/PAPER_GRAIN.
 import { ADD_TO_CLAUDE_URL, MCP_URL, READER_URL } from "./util";
 
 // Official Claude spark (Simple Icons path, brand coral) — decorative next to the
@@ -234,9 +235,49 @@ ${THEME_BODY}
 </body></html>`;
 }
 
+// Desktop only — an e-reader never receives a byte of this (gated on the eink
+// flag, not a selector a 2012 WebKit would have to parse). A backlit monitor at
+// #fff is the harshest reading surface there is, so the browser fallback reads on
+// doodled.dev's paper: the same tokens and the same grain recipe, verbatim —
+// quotes included: an unquoted `intercept=.93/>` eats the slash, the primitive
+// stops self-closing, and everything after feTurbulence nests inside it. The
+// grain multiplies over the ground only — it sits first in <body>, under every
+// positioned sibling, so the ink above it is untouched. Light theme only:
+// multiply over #000 is a no-op, so dark keeps the OLED palette.
+const PAPER_CSS = `
+  .light{--paper:#e8e4d9;--ink:#1b1917;--dim:#6b6558;--rule:#c9c2b2;--fill:rgba(27,25,23,.05)}
+  .light,.light body{background:var(--paper);color:var(--ink)}
+  .light a,.light .pair .lead,.light .pair .hint b{color:var(--ink)}
+  .light .pair .hint,.light .pair .alt,.light .pair .wait,.light #selbar .spreview,
+  .light #menu .pageind,.light #menu .mhint,.light #foot{color:var(--dim)}
+  .light #flow code,.light #flow pre,.light #flow th{background:var(--fill)}
+  .light #flow hr,.light #flow th,.light #flow td{border-color:var(--rule)}
+  .light #flow blockquote,.light #flow .choice,.light #selbar,.light #menu,
+  .light #selbar .sbtn,.light #menu .mbtn,.light #menu .qbtn{border-color:var(--ink)}
+  .light #selbar,.light #menu{background:var(--paper)}
+  .light #foot{background:transparent}
+  .light #flow span.mark{background:var(--ink);color:var(--paper)}
+  .grain{position:fixed;inset:0;pointer-events:none;mix-blend-mode:multiply}
+  .dark .grain{display:none}`;
+const PAPER_GRAIN = `<svg class="grain" preserveAspectRatio="none" viewBox="0 0 100 100" aria-hidden="true">
+  <filter id="pgrain" x="0" y="0" width="100%" height="100%">
+    <feTurbulence type="fractalNoise" baseFrequency=".9" numOctaves="4" seed="6"/>
+    <feColorMatrix type="saturate" values="0"/>
+    <feComponentTransfer>
+      <feFuncR type="linear" slope=".14" intercept=".93"/>
+      <feFuncG type="linear" slope=".14" intercept=".93"/>
+      <feFuncB type="linear" slope=".14" intercept=".91"/>
+      <feFuncA type="linear" slope="0" intercept="1"/>
+    </feComponentTransfer>
+  </filter>
+  <rect width="100" height="100" filter="url(#pgrain)"/>
+</svg>
+`;
+
 // eink: the UA is an e-reader (isEreader, same test that routes / to a code).
-// It only selects a dark palette — see the [data-eink].dark block. Carried as an
-// attribute, not a class, because the theme script owns className outright.
+// It selects the two-ink dark palette — see the [data-eink].dark block — and
+// withholds the paper block above. Carried as an attribute, not a class, because
+// the theme script owns className outright.
 export function readerPage(code: string, eink = false): string {
   return `<!doctype html><html lang=en${eink ? " data-eink" : ""}><head><meta charset=utf-8>
 <meta name=viewport content="width=device-width,initial-scale=1">
@@ -335,7 +376,7 @@ export function readerPage(code: string, eink = false): string {
   [data-eink].dark #flow th,[data-eink].dark #flow td,[data-eink].dark #flow hr,
   [data-eink].dark #flow .choice,[data-eink].dark #selbar,[data-eink].dark #menu,
   [data-eink].dark #foot,[data-eink].dark #selbar .sbtn,
-  [data-eink].dark #menu .mbtn,[data-eink].dark #menu .qbtn{border-color:#fff}
+  [data-eink].dark #menu .mbtn,[data-eink].dark #menu .qbtn{border-color:#fff}${eink ? "" : PAPER_CSS}
 </style>
 <script>
   /* Before first paint, so a pinned theme never flashes the other one. Stored
@@ -345,7 +386,7 @@ export function readerPage(code: string, eink = false): string {
     document.documentElement.className=t;
     try{document.documentElement.style.colorScheme=t;}catch(e){}})();
 </script></head><body>
-<div id=h class=pair>
+${eink ? "" : PAPER_GRAIN}<div id=h class=pair>
   <p class=lead>Your reading code</p>
   <p class=code>${code}</p>
   <p class=hint>In Claude, say:<br><b>&ldquo;send that to my reader, code ${code}&rdquo;</b></p>
