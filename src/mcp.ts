@@ -9,12 +9,94 @@
 // saved pairing on — that's what the gateway's copy adds, and why pair_reader
 // exists there and not here).
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+// MCP Tasks (spec 2026-07-28, io.modelcontextprotocol/tasks) — @experimental in
+// the SDK, and no client (Claude web/Desktop/Code) negotiates it yet as of
+// 2026-08. Wired anyway because it's pure upside: taskSupport "optional" means a
+// client that never asks for a task gets today's exact blocking behavior via the
+// SDK's own automatic-task-polling fallback (see buildChoiceReply/
+// buildDrillReportReply below, used by both paths); only a client that sends
+// `task` on the call gets the non-blocking handle instead. Nothing to revert
+// later — it just starts working the day a client speaks it.
+import { InMemoryTaskStore } from "@modelcontextprotocol/sdk/experimental/tasks";
+import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { McpAgent } from "agents/mcp";
 import { z } from "zod";
 import { sendDoc, awaitChoice, readStatus, startDrill, awaitDrillReport, resumeDrill } from "./ops";
 import { readerLink, tapFeedUrl, ICON_PNG_URL, ICON_SVG_URL } from "./util";
 
 const fmtAgo = (s: number): string => (s < 90 ? `${s}s` : s < 5400 ? `${Math.round(s / 60)}m` : `${Math.round(s / 3600)}h`);
+
+// A completed/failed task's result stays fetchable for this long — independent
+// of the tool's own wait timeout, which only bounds how long the background
+// wait below runs before it settles (with or without a tap).
+const TASK_RESULT_TTL_MS = 10 * 60_000;
+// Suggested tasks/get cadence. Also the SDK's own re-check interval when a
+// non-task client falls back to automatic polling (see the module comment
+// above) — kept short so that fallback doesn't add a visible delay on top of
+// the near-instant tap delivery awaitChoice already gives a real tap.
+const TASK_POLL_INTERVAL_MS = 1000;
+
+// Shared by the direct (task-aware client) and automatic-polling (everyone
+// else, via the SDK's taskSupport "optional" fallback) paths — see the
+// `execution: { taskSupport: "optional" }` tools below. Exactly the reply
+// await_reader_choice always returned, now built once so both paths agree.
+function buildChoiceReply(r: Awaited<ReturnType<typeof awaitChoice>>, code: string, timeoutSec: number) {
+  if (r && "error" in r) return { content: [{ type: "text" as const, text: `Couldn't wait: ${r.error}.` }], isError: true };
+  if (r && r.label) {
+    const kind = r.kind === "quick" ? "quick_action" as const : r.kind === "explain" ? "explain" as const : "choice" as const;
+    if (kind === "explain") {
+      const tg = r.target;
+      const anchors = tg && (tg.before || tg.after) ? ` Context anchors — before: "…${tg.before}", after: "${tg.after}…".` : "";
+      return {
+        content: [{ type: "text" as const, text: `The user marked text on the reader for explanation: "${r.label}" (${tg?.granularity ?? "block"}${r.v ? `, on doc version ${r.v}` : ""}).${anchors} Locate it in the markdown YOU sent at that version, explain it in context, and reply with send_to_reader — prefer mode "append". This is a request, not an answer to your choices.` }],
+        structuredContent: { label: r.label, kind, target: tg ?? null, document_version: r.v ?? null, timed_out: false },
+      };
+    }
+    const note = kind === "quick_action" ? " (a quick action — a request to act on, not an answer)" : "";
+    return { content: [{ type: "text" as const, text: `The user tapped: "${r.label}"${note}` }], structuredContent: { label: r.label, kind, target: null, document_version: r.v ?? null, timed_out: false } };
+  }
+  return { content: [{ type: "text" as const, text: `No tap within ${timeoutSec}s. A late tap may still be coming — don't re-send the question. Watch wss://reader.neves.cloud/w/${code} if your harness can hold a WebSocket; otherwise one more await is fine, or move on.` }], structuredContent: { label: null, kind: null, timed_out: true } };
+}
+
+// Same role as buildChoiceReply, for await_drill_report.
+function buildDrillReportReply(r: Awaited<ReturnType<typeof awaitDrillReport>>, code: string) {
+  if (r && "error" in r) return { content: [{ type: "text" as const, text: `Couldn't wait: ${r.error}.` }], isError: true };
+  if (!r) {
+    return {
+      content: [{ type: "text" as const, text: `No drill is running on reader ${code} and no report is waiting. Start one with send_drill.` }],
+      structuredContent: { finished: false, cancelled: false, report: null, progress: null },
+    };
+  }
+  if (r.report) {
+    const rep = r.report;
+    const missed = rep.items.filter((i) => i.attempts.length && !i.first_try);
+    const skipped = rep.items.filter((i) => !i.attempts.length);
+    const lines = [
+      `Drill "${rep.title}" ${rep.cancelled ? "ended early" : "complete"}: ${rep.first_try}/${rep.total} right first try in ${rep.elapsed_seconds}s.`,
+      missed.length
+        ? `Missed first time:\n${missed.map((i) => `• ${i.question}\n  tapped ${i.attempts.map((a) => `"${a}"`).join(" → ")} · answer "${i.correct_answer}"`).join("\n")}`
+        : "Nothing missed.",
+      skipped.length ? `${skipped.length} item(s) never reached.` : "",
+      rep.requests.length ? `They asked for help ${rep.requests.length}× during the drill: ${rep.requests.map((q) => `"${q.label}"`).join(", ")}.` : "",
+    ].filter(Boolean);
+    return {
+      content: [{ type: "text" as const, text: lines.join("\n\n") }],
+      structuredContent: {
+        finished: true, cancelled: rep.cancelled,
+        report: { title: rep.title, total: rep.total, completed: rep.completed, first_try: rep.first_try, elapsed_seconds: rep.elapsed_seconds, items: rep.items, requests: rep.requests },
+        progress: null,
+      },
+    };
+  }
+  const p = r.progress!;
+  const parked = p.suspended
+    ? ` The drill is PARKED on a request from the user — call await_reader_choice to see it, answer with send_to_reader mode "append", then resume_drill.`
+    : "";
+  return {
+    content: [{ type: "text" as const, text: `Still going: ${p.done}/${p.total} done${p.question ? `, on "${p.question}"` : ""}.${parked} Don't send anything with mode "replace" — that would end the drill. Watch wss://reader.neves.cloud/w/${code} for a {"type":"drill_done"} frame, or call this again.` }],
+    structuredContent: { finished: false, cancelled: false, report: null, progress: p },
+  };
+}
 
 // Deck mode's wire shape, shared by send_drill's input schema and the report's
 // output schema below.
@@ -65,6 +147,18 @@ VERSION DISCIPLINE: pass the version a send returns as min_version to await_read
 FIXED DRILLS — use send_drill, not a send/await loop. When the whole deck is known up front and every answer is closed-form (multiple choice with a key), send_drill hands the loop to the server: it scores each tap, shows your feedback and turns the page with no round-trip, and await_drill_report gives you per-item results at the end. Reserve send_to_reader/await_reader_choice for teaching, discussion, and adaptive questioning — anything where the next screen depends on what they said.
 
 E-INK CONTENT: markdown + GFM tables + SVG (fenced \`\`\`svg or raw <svg>) render crisply; grayscale high-contrast only, big fonts, one idea per screen; mode "append" streams chunks without losing the user's page.`,
+      // Backs await_reader_choice / await_drill_report's task augmentation.
+      // In-memory (SDK's own store, not production-hardened per its own docs):
+      // acceptable because this DO's other wait state (session.ts's Waiter[]/
+      // ReportWaiter[]) already accepts the same "lost on DO eviction, caller
+      // re-arms" risk — this isn't a new class of fragility.
+      taskStore: new InMemoryTaskStore(),
+      // Must be declared explicitly — registering a task-based tool does not
+      // by itself advertise capabilities.tasks.requests.tools.call, and a
+      // spec-conformant client checks this before ever sending `task` on a
+      // tools/call. Merged with (not replacing) the tools/resources
+      // capabilities McpServer derives from registerTool/registerResource.
+      capabilities: { tasks: { requests: { tools: { call: {} } } } },
     },
   );
 
@@ -118,7 +212,7 @@ E-INK CONTENT: markdown + GFM tables + SVG (fenced \`\`\`svg or raw <svg>) rende
       },
     );
 
-    this.server.registerTool(
+    this.server.experimental.tasks.registerToolTask(
       "await_reader_choice",
       {
         title: "Wait for a tap on the e-reader",
@@ -141,25 +235,28 @@ E-INK CONTENT: markdown + GFM tables + SVG (fenced \`\`\`svg or raw <svg>) rende
           timed_out: z.boolean(),
         },
         annotations: { title: "Wait for a tap on the e-reader", readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+        // "optional": a client that never asks for a task (everyone today) gets
+        // this exact wait via the SDK's automatic task polling — unchanged
+        // behavior. A client that sends `task` gets an immediate handle and
+        // polls tasks/get itself instead of holding the call open.
+        execution: { taskSupport: "optional" },
       },
-      async ({ code, timeout_seconds, min_version }) => {
-        const t = Math.min(Math.max(timeout_seconds ?? 45, 5), 55);
-        const r = await awaitChoice(env, code, t * 1000, min_version ?? 0);
-        if (r && "error" in r) return { content: [{ type: "text", text: `Couldn't wait: ${r.error}.` }], isError: true };
-        if (r && r.label) {
-          const kind = r.kind === "quick" ? "quick_action" as const : r.kind === "explain" ? "explain" as const : "choice" as const;
-          if (kind === "explain") {
-            const tg = r.target;
-            const anchors = tg && (tg.before || tg.after) ? ` Context anchors — before: "…${tg.before}", after: "${tg.after}…".` : "";
-            return {
-              content: [{ type: "text", text: `The user marked text on the reader for explanation: "${r.label}" (${tg?.granularity ?? "block"}${r.v ? `, on doc version ${r.v}` : ""}).${anchors} Locate it in the markdown YOU sent at that version, explain it in context, and reply with send_to_reader — prefer mode "append". This is a request, not an answer to your choices.` }],
-              structuredContent: { label: r.label, kind, target: tg ?? null, document_version: r.v ?? null, timed_out: false },
-            };
-          }
-          const note = kind === "quick_action" ? " (a quick action — a request to act on, not an answer)" : "";
-          return { content: [{ type: "text", text: `The user tapped: "${r.label}"${note}` }], structuredContent: { label: r.label, kind, target: null, document_version: r.v ?? null, timed_out: false } };
-        }
-        return { content: [{ type: "text", text: `No tap within ${t}s. A late tap may still be coming — don't re-send the question. Watch wss://reader.neves.cloud/w/${code} if your harness can hold a WebSocket; otherwise one more await is fine, or move on.` }], structuredContent: { label: null, kind: null, timed_out: true } };
+      {
+        createTask: async ({ code, timeout_seconds, min_version }, extra) => {
+          const t = Math.min(Math.max(timeout_seconds ?? 45, 5), 55);
+          const task = await extra.taskStore.createTask({ ttl: TASK_RESULT_TTL_MS, pollInterval: TASK_POLL_INTERVAL_MS });
+          this.ctx.waitUntil(
+            awaitChoice(env, code, t * 1000, min_version ?? 0)
+              .then((r) => extra.taskStore.storeTaskResult(task.taskId, "completed", buildChoiceReply(r, code, t)))
+              .catch((e) => extra.taskStore.storeTaskResult(task.taskId, "failed", {
+                content: [{ type: "text", text: `Internal error waiting for a tap: ${e instanceof Error ? e.message : String(e)}` }],
+                isError: true,
+              })),
+          );
+          return { task };
+        },
+        getTask: async (_args, extra) => extra.taskStore.getTask(extra.taskId),
+        getTaskResult: async (_args, extra) => extra.taskStore.getTaskResult(extra.taskId) as Promise<CallToolResult>,
       },
     );
 
@@ -257,7 +354,7 @@ E-INK CONTENT: markdown + GFM tables + SVG (fenced \`\`\`svg or raw <svg>) rende
       },
     );
 
-    this.server.registerTool(
+    this.server.experimental.tasks.registerToolTask(
       "await_drill_report",
       {
         title: "Get drill results",
@@ -280,46 +377,24 @@ E-INK CONTENT: markdown + GFM tables + SVG (fenced \`\`\`svg or raw <svg>) rende
           progress: PROGRESS.nullable(),
         },
         annotations: { title: "Get drill results", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+        execution: { taskSupport: "optional" }, // see await_reader_choice
       },
-      async ({ code, timeout_seconds }) => {
-        const t = Math.min(Math.max(timeout_seconds ?? 45, 5), 55);
-        const r = await awaitDrillReport(env, code, t * 1000);
-        if (r && "error" in r) return { content: [{ type: "text", text: `Couldn't wait: ${r.error}.` }], isError: true };
-        if (!r) {
-          return {
-            content: [{ type: "text", text: `No drill is running on reader ${code} and no report is waiting. Start one with send_drill.` }],
-            structuredContent: { finished: false, cancelled: false, report: null, progress: null },
-          };
-        }
-        if (r.report) {
-          const rep = r.report;
-          const missed = rep.items.filter((i) => i.attempts.length && !i.first_try);
-          const skipped = rep.items.filter((i) => !i.attempts.length);
-          const lines = [
-            `Drill "${rep.title}" ${rep.cancelled ? "ended early" : "complete"}: ${rep.first_try}/${rep.total} right first try in ${rep.elapsed_seconds}s.`,
-            missed.length
-              ? `Missed first time:\n${missed.map((i) => `• ${i.question}\n  tapped ${i.attempts.map((a) => `"${a}"`).join(" → ")} · answer "${i.correct_answer}"`).join("\n")}`
-              : "Nothing missed.",
-            skipped.length ? `${skipped.length} item(s) never reached.` : "",
-            rep.requests.length ? `They asked for help ${rep.requests.length}× during the drill: ${rep.requests.map((q) => `"${q.label}"`).join(", ")}.` : "",
-          ].filter(Boolean);
-          return {
-            content: [{ type: "text", text: lines.join("\n\n") }],
-            structuredContent: {
-              finished: true, cancelled: rep.cancelled,
-              report: { title: rep.title, total: rep.total, completed: rep.completed, first_try: rep.first_try, elapsed_seconds: rep.elapsed_seconds, items: rep.items, requests: rep.requests },
-              progress: null,
-            },
-          };
-        }
-        const p = r.progress!;
-        const parked = p.suspended
-          ? ` The drill is PARKED on a request from the user — call await_reader_choice to see it, answer with send_to_reader mode "append", then resume_drill.`
-          : "";
-        return {
-          content: [{ type: "text", text: `Still going: ${p.done}/${p.total} done${p.question ? `, on "${p.question}"` : ""}.${parked} Don't send anything with mode "replace" — that would end the drill. Watch wss://reader.neves.cloud/w/${code} for a {"type":"drill_done"} frame, or call this again.` }],
-          structuredContent: { finished: false, cancelled: false, report: null, progress: p },
-        };
+      {
+        createTask: async ({ code, timeout_seconds }, extra) => {
+          const t = Math.min(Math.max(timeout_seconds ?? 45, 5), 55);
+          const task = await extra.taskStore.createTask({ ttl: TASK_RESULT_TTL_MS, pollInterval: TASK_POLL_INTERVAL_MS });
+          this.ctx.waitUntil(
+            awaitDrillReport(env, code, t * 1000)
+              .then((r) => extra.taskStore.storeTaskResult(task.taskId, "completed", buildDrillReportReply(r, code)))
+              .catch((e) => extra.taskStore.storeTaskResult(task.taskId, "failed", {
+                content: [{ type: "text", text: `Internal error waiting for the drill report: ${e instanceof Error ? e.message : String(e)}` }],
+                isError: true,
+              })),
+          );
+          return { task };
+        },
+        getTask: async (_args, extra) => extra.taskStore.getTask(extra.taskId),
+        getTaskResult: async (_args, extra) => extra.taskStore.getTaskResult(extra.taskId) as Promise<CallToolResult>,
       },
     );
 
