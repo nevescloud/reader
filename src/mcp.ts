@@ -136,17 +136,9 @@ export class ReaderMcp extends McpAgent<Env, unknown, Record<string, never>> {
       ],
     },
     {
-      instructions: `Drive the user's e-ink reader (reader.neves.cloud). Send long-form text to read on e-ink instead of the chat window, optionally with tappable choices, and read back their taps.
+      instructions: `Drive the user's e-ink reader (reader.neves.cloud): send long-form text, decks, and tappable choices to the device instead of the chat window, and read back their taps.
 
-The 5-character code shown on the device is required on every tool — it's the whole capability (this endpoint has no accounts). Ask the user to open reader.neves.cloud on the e-reader and read off the code.
-
-WAITING FOR TAPS — arm the tap feed, don't poll. Every code has a read-only WebSocket at wss://reader.neves.cloud/w/<CODE>; each tap arrives as one JSON frame. If your harness can hold a WebSocket (e.g. Claude Code's Monitor, ws mode), arm it once, end your turn, and let a frame wake you — then call await_reader_choice, which returns instantly. Otherwise call await_reader_choice directly; never loop it (a re-send would discard a tap landing in the gap).
-
-VERSION DISCIPLINE: pass the version a send returns as min_version to await_reader_choice, so a tap left on an older screen can't answer the current question. A quick action (↻ simpler / → more) or explain-request is a request to act on, not an answer to your choices.
-
-FIXED DRILLS — use send_drill, not a send/await loop. When the whole deck is known up front and every answer is closed-form (multiple choice with a key), send_drill hands the loop to the server: it scores each tap, shows your feedback and turns the page with no round-trip, and await_drill_report gives you per-item results at the end. Reserve send_to_reader/await_reader_choice for teaching, discussion, and adaptive questioning — anything where the next screen depends on what they said.
-
-E-INK CONTENT: markdown + GFM tables + SVG (fenced \`\`\`svg or raw <svg>) render crisply; grayscale high-contrast only, big fonts, one idea per screen; mode "append" streams chunks without losing the user's page.`,
+The 5-character code shown on the device is required on every tool — it is the whole capability (no accounts). Ask the user to open reader.neves.cloud on the e-reader and read off the code. Arm the tap feed (wss://reader.neves.cloud/w/<CODE>) rather than polling; each tool's description carries its own discipline.`,
       // Backs await_reader_choice / await_drill_report's task augmentation.
       // In-memory (SDK's own store, not production-hardened per its own docs):
       // acceptable because this DO's other wait state (session.ts's Waiter[]/
@@ -170,7 +162,7 @@ E-INK CONTENT: markdown + GFM tables + SVG (fenced \`\`\`svg or raw <svg>) rende
       {
         title: "Send to e-reader",
         description:
-          `Display long-form text on the user's e-reader (Kindle, Kobo, etc.) in real time, for comfortable reading on e-ink instead of the chat window. "code" is the 5-character code on the device (they get it by opening reader.neves.cloud). mode "replace" (default) swaps what's shown and returns to page 1; mode "append" adds to the end — if they're reading the tail it follows, otherwise their page is held (stream a long piece in section-sized chunks: send only the new chunk). Optionally pass "choices" — short labels rendered as big tappable buttons; the user taps one and you read it back with await_reader_choice. The reader also always shows quick actions (↻ simpler / → more / ✎ explain) in its menu — those taps surface via await_reader_choice or check_reader. Every code has a read-only WebSocket tap feed (wss://reader.neves.cloud/w/<CODE>, returned as tap_feed) — watch it instead of polling. The response says honestly whether the device is live, sleeping, or has never polled the code.`,
+          `Display long-form text on the user's e-reader (Kindle, Kobo, etc.) in real time, for comfortable reading on e-ink instead of the chat window. "code" is the 5-character code on the device (they get it by opening reader.neves.cloud). mode "replace" (default) swaps what's shown and returns to page 1; mode "append" adds to the end — if they're reading the tail it follows, otherwise their page is held (stream a long piece in section-sized chunks: send only the new chunk). Optionally pass "choices" — short labels rendered as big tappable buttons; the user taps one and you read it back with await_reader_choice. The reader also always shows quick actions (↻ simpler / → more / ✎ explain) in its menu — those taps surface via await_reader_choice or check_reader. Every code has a read-only WebSocket tap feed (wss://reader.neves.cloud/w/<CODE>, returned as tap_feed) — watch it instead of polling. The response says honestly whether the device is live, sleeping, or has never polled the code. E-ink content: grayscale high-contrast only, big fonts, one idea per screen.`,
         inputSchema: {
           code: z.string().describe("The 5-character reader code shown on the device."),
           content: z.string().describe("The text to display, as markdown. Also supports GFM tables and SVG (a ```svg fenced block or a raw <svg>…</svg>) for diagrams, charts, and line art — rendered crisply on e-ink. (No other raw HTML/JS.)"),
@@ -217,7 +209,7 @@ E-INK CONTENT: markdown + GFM tables + SVG (fenced \`\`\`svg or raw <svg>) rende
       {
         title: "Wait for a tap on the e-reader",
         description:
-          `Consume the user's tap on their e-reader — one of the choices you passed to send_to_reader, a quick action (↻ simpler / → more) they can tap anytime, or an explain-request (they marked a word/sentence/block via ✎ explain… for an in-context explanation). Blocks until they tap or it times out; a timeout is not an answer — the tap may land moments later, so don't re-send the question (prefer watching wss://reader.neves.cloud/w/<CODE> and calling this after a frame arrives). Pass min_version (the version returned by your send) so a tap left on an older document isn't mistaken for an answer to the current one.`,
+          `Consume the user's tap on their e-reader — one of the choices you passed to send_to_reader, a quick action (↻ simpler / → more) they can tap anytime, or an explain-request (they marked a word/sentence/block via ✎ explain… for an in-context explanation). Blocks until they tap or it times out; a timeout is not an answer — the tap may land moments later, so don't re-send the question (prefer watching wss://reader.neves.cloud/w/<CODE> and calling this after a frame arrives). Pass min_version (the version returned by your send) so a tap left on an older document isn't mistaken for an answer to the current one. A quick action or explain-request is a request to act on, not an answer to your choices.`,
         inputSchema: {
           code: z.string().describe("The 5-character reader code shown on the device."),
           timeout_seconds: z.number().optional().describe("How long to wait (5–55, default 45)."),
